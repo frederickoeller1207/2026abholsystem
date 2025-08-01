@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Verlauf – Abholsystem</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 20px;
+      background: #f2f2f7;
+    }
+
+    nav {
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin-bottom: 20px;
+    }
+
+    input[type="date"] {
+      padding: 8px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      margin-bottom: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      font-size: 15px;
+    }
+
+    .gruen { color: green; }
+    .rot { color: red; }
+    .gelb { color: #ffcc00; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="index.html">🏠 Übersicht</a> |
+    <a href="admin.html">⚙️ Admin</a> |
+    <a href="log.html">📄 Verlauf</a>
+  </nav>
+
+  <h1>Verlauf / Log</h1>
+  <input type="date" id="datum" />
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Abmeldung erlaubt ab</th>
+        <th>Tatsächlich abgemeldet um</th>
+      </tr>
+    </thead>
+    <tbody id="tabelle"></tbody>
+  </table>
+
+  <h2>Abwesende</h2>
+  <ul id="abwesend"></ul>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
+    import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyD0aH7m6J8PE_Bfw1GzoM_NJedtK7P9spA",
+      authDomain: "abholsystem.firebaseapp.com",
+      databaseURL: "https://abholsystem-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "abholsystem",
+      storageBucket: "abholsystem.firebasestorage.app",
+      messagingSenderId: "101332855847",
+      appId: "1:101332855847:web:16519046d70fc2e8fef202"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const datumInput = document.getElementById("datum");
+    const tabelle = document.getElementById("tabelle");
+    const abwesenheitenListe = document.getElementById("abwesend");
+
+    datumInput.valueAsDate = new Date();
+
+    datumInput.addEventListener("change", ladeLog);
+    ladeLog();
+
+    async function ladeLog() {
+      const datum = datumInput.value;
+      tabelle.innerHTML = "";
+      abwesenheitenListe.innerHTML = "";
+
+      const [logSnap, abwSnap] = await Promise.all([
+        get(ref(db, `log/${datum}`)),
+        get(ref(db, `abwesenheiten/${datum}`))
+      ]);
+
+      const log = logSnap.val() || {};
+      const abwesende = abwSnap.val() || [];
+
+      for (const name in log) {
+        const eintrag = log[name];
+        const [sStd, sMin] = (eintrag.sollte || "00:00").split(":").map(Number);
+        const [aStd, aMin] = (eintrag.abgemeldet || "00:00").split(":").map(Number);
+
+        const sollMin = sStd * 60 + sMin - 3;
+        const istMin = aStd * 60 + aMin;
+
+        const farbe = istMin >= sollMin ? "gruen" : "rot";
+
+        tabelle.innerHTML += `
+          <tr>
+            <td>${name}</td>
+            <td>${eintrag.sollte}</td>
+            <td class="${farbe}">${eintrag.abgemeldet}</td>
+          </tr>
+        `;
+      }
+
+      abwesende.forEach(name => {
+        const li = document.createElement("li");
+        li.className = "gelb";
+        li.textContent = name;
+        abwesenheitenListe.appendChild(li);
+      });
+    }
+  </script>
+</body>
+</html>
