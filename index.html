@@ -73,14 +73,14 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
-    import { getDatabase, ref, onValue, update, get } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
+    import { getDatabase, ref, onValue, update, get, remove } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyD0aH7m6J8PE_Bfw1GzoM_NJedtK7P9spA",
       authDomain: "abholsystem.firebaseapp.com",
       databaseURL: "https://abholsystem-default-rtdb.europe-west1.firebasedatabase.app",
       projectId: "abholsystem",
-      storageBucket: "abholsystem.firebasestorage.app",
+      storageBucket: "abholsystem.appspot.com",
       messagingSenderId: "101332855847",
       appId: "1:101332855847:web:16519046d70fc2e8fef202"
     };
@@ -195,15 +195,10 @@
       const status = e.target.classList.contains("abgemeldet") ? "abgemeldet" :
                      e.target.classList.contains("abwesend") ? "abwesend" : "aktiv";
 
-      const auswahl = prompt(`${name} – Was möchtest du tun?
-
-` +
-        (status !== "aktiv" ? "1. Wieder anmelden
-" : "") +
-        (status !== "abgemeldet" ? "2. Manuell abmelden
-" : "") +
-        (status !== "abwesend" ? "3. Abwesend setzen
-" : "") +
+      const auswahl = prompt(`${name} – Was möchtest du tun?\n\n` +
+        (status !== "aktiv" ? "1. Wieder anmelden\n" : "") +
+        (status !== "abgemeldet" ? "2. Manuell abmelden\n" : "") +
+        (status !== "abwesend" ? "3. Abwesend setzen\n" : "") +
         "Abbrechen mit OK oder X.");
 
       const updates = {};
@@ -239,10 +234,7 @@
       const heute = new Date().toISOString().split("T")[0];
       const letzter = localStorage.getItem(letzterResetKey);
       if (letzter === heute) return;
-      import("https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js").then(({ getDatabase, ref, remove }) => {
-        const db = getDatabase();
-        remove(ref(db, `ausnahmen/${heute}`));
-      });
+      remove(ref(db, `ausnahmen/${heute}`));
       localStorage.setItem(letzterResetKey, heute);
     }
 
