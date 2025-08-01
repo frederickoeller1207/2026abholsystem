@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Abmeldung</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #f2f2f7;
+      font-size: 20px;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .erfolg { color: green; }
+    .fehler { color: red; }
+  </style>
+</head>
+<body>
+  <div id="meldung">Lade...</div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
+    import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyD0aH7m6J8PE_Bfw1GzoM_NJedtK7P9spA",
+      authDomain: "abholsystem.firebaseapp.com",
+      databaseURL: "https://abholsystem-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "abholsystem",
+      storageBucket: "abholsystem.firebasestorage.app",
+      messagingSenderId: "101332855847",
+      appId: "1:101332855847:web:16519046d70fc2e8fef202"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const url = new URL(window.location.href);
+    const name = url.searchParams.get("name");
+    const isAdmin = url.searchParams.get("admin") === "true";
+
+    const heute = new Date();
+    const datum = heute.toISOString().split("T")[0];
+    const wochentag = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"][heute.getDay()];
+    const jetztMin = heute.getHours() * 60 + heute.getMinutes();
+
+    const meldung = document.getElementById("meldung");
+
+    async function abmelden() {
+      if (!name) {
+        meldung.innerHTML = "<span class='fehler'>Kein Name übergeben.</span>";
+        return;
+      }
+
+      const [logSnap, abwSnap, kindSnap, ausnahmeSnap] = await Promise.all([
+        get(ref(db, `log/${datum}/${name}`)),
+        get(ref(db, `abwesenheiten/${datum}`)),
+        get(ref(db, `kinder/${name}`)),
+        get(ref(db, `ausnahmen/${datum}/${name}`))
+      ]);
+
+      if (abwSnap.exists() && abwSnap.val().includes(name)) {
+        meldung.innerHTML = `<span class='fehler'>${name} ist heute als abwesend eingetragen.</span>`;
+        return;
+      }
+
+      if (logSnap.exists()) {
+        meldung.innerHTML = `<span class='fehler'>${name}, du hast dich heute bereits abgemeldet.</span>`;
+        return;
+      }
+
+      if (!kindSnap.exists()) {
+        meldung.innerHTML = `<span class='fehler'>${name} ist nicht registriert.</span>`;
+        return;
+      }
+
+      const kind = kindSnap.val();
+      let erlaubteZeit = kind.abholzeiten?.[wochentag];
+      if (!erlaubteZeit) {
+        meldung.innerHTML = `<span class='fehler'>Für ${name} ist heute keine Abholzeit hinterlegt.</span>`;
+        return;
+      }
+
+      if (ausnahmeSnap.exists()) erlaubteZeit = ausnahmeSnap.val();
+
+      const [std, min] = erlaubteZeit.split(":").map(n => parseInt(n));
+      const erlaubteMin = std * 60 + min - 3;
+
+      if (!isAdmin && jetztMin < erlaubteMin) {
+        const diff = erlaubteMin - jetztMin;
+        meldung.innerHTML = `<span class='fehler'>${name}, bitte warte noch ${diff} Minute(n).</span>`;
+        return;
+      }
+
+      const zeit = `${String(heute.getHours()).padStart(2, '0')}:${String(heute.getMinutes()).padStart(2, '0')}`;
+      await set(ref(db, `log/${datum}/${name}`), {
+        sollte: erlaubteZeit,
+        abgemeldet: zeit,
+        art: isAdmin ? "admin" : "nfc"
+      });
+
+      meldung.innerHTML = `<span class='erfolg'>${name} wurde erfolgreich abgemeldet.</span>`;
+    }
+
+    abmelden();
+  </script>
+</body>
+</html>
