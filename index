@@ -1,0 +1,76 @@
+function doGet(e) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("SystemSystem");
+  const name = e.parameter.name;
+  const isAdmin = e.parameter.admin === "true";
+  const now = new Date();
+  const weekday = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"][now.getDay()];
+
+  const abholzeiten = {
+    "Montag": {
+      "Lotte": "14:00", "Matthias": "15:00", "Greta": "15:00", "Liam": "15:00", "Max": "15:00", "Ronja": "15:00", "Sophie": "15:00", "Nela": "15:00", "Mia": "15:00",
+      "Ismail": "15:00", "Malick": "15:00", "Fridag": "15:00", "Lukas": "15:00", "Niklas": "15:00", "Romy": "15:00", "Emilia": "15:00", "Malin": "15:00", "Leni": "15:00", "Fridar": "15:00",
+      "Zehra": "16:00", "Irem": "16:00", "David": "16:00", "Oskar": "16:30", "Artur": "16:30", "Jayden": "16:30"
+    },
+    "Dienstag": {
+      "Liam": "15:00", "Matthias": "15:00", "Sophie": "15:00", "Nela": "15:00", "Mia": "15:00", "Emilia": "15:00", "Ismail": "15:00", "Malick": "15:00", "Greta": "15:00", "Ronja": "15:00",
+      "Fridag": "14:45", "Lotte": "15:00", "Niklas": "15:00", "Romy": "15:00", "Lukas": "15:00", "Leni": "15:00", "Fridar": "15:00", "Artur": "15:00", "Jayden": "15:00", "Malin": "15:00", "David": "15:00",
+      "Max": "16:00", "Oskar": "16:00", "Zehra": "16:00", "Irem": "16:00"
+    },
+    "Mittwoch": {
+      "Zehra": "13:45", "Liam": "14:00", "Matthias": "15:00", "Nela": "15:00", "Oskar": "15:00", "Emilia": "15:00", "Ronja": "15:00", "Greta": "15:00", "Lukas": "15:00", "Romy": "15:00",
+      "Niklas": "15:00", "Malin": "15:00", "Fridar": "15:00", "David": "15:00", "Artur": "15:00", "Leni": "15:00", "Fridag": "15:00", "Lotte": "15:00",
+      "Max": "16:00", "Irem": "16:00", "Malick": "16:00", "Mia": "16:00", "Ismail": "16:00", "Sophie": "16:00", "Jayden": "16:30"
+    },
+    "Donnerstag": {
+      "Matthias": "15:00", "Sophie": "15:00", "Nela": "15:00", "Liam": "15:00", "Emilia": "15:00", "Ronja": "15:00", "Malick": "15:00", "Ismail": "15:00", "Fridag": "15:00", "Greta": "15:00",
+      "Niklas": "15:00", "Lotte": "15:00", "Romy": "15:00", "Malin": "15:00", "Fridar": "15:00", "Artur": "15:00", "Leni": "15:00",
+      "Max": "16:00", "Oskar": "16:00", "Irem": "16:00", "Lukas": "16:00", "David": "16:00", "Zehra": "16:00", "Jayden": "16:00"
+    },
+    "Freitag": {
+      "Leni": "14:00", "Matthias": "15:00", "Sophie": "15:00", "Nela": "15:00", "Liam": "15:00", "Ronja": "15:00", "Malick": "15:00", "Mia": "15:00", "Ismail": "15:00",
+      "Fridag": "15:00", "Greta": "13:30", "Lotte": "15:00", "Niklas": "15:00", "Lukas": "15:00", "Malin": "15:00", "Fridar": "15:00", "Artur": "15:00",
+      "Oskar": "15:30", "Emilia": "15:30", "Max": "15:30", "Irem": "15:30", "Romy": "15:30", "Zehra": "15:30", "Jayden": "15:30", "David": "15:30"
+    }
+  };
+
+  const zeit = abholzeiten[weekday]?.[name];
+
+  if (!zeit && !isAdmin) {
+    return ContentService.createTextOutput(`Keine Abholzeit für ${name} hinterlegt.`);
+  }
+
+  const [std, min] = isAdmin ? [0, 0] : zeit.split(":").map(Number);
+  const abholZeit = new Date(now);
+  abholZeit.setHours(std, min - 2, 0); // 2 Minuten vorher
+
+  if (now >= abholZeit || isAdmin) {
+    const range = sheet.getDataRange();
+    const values = range.getValues();
+    const fonts = range.getFontLines();
+    const colors = range.getFontColors();
+
+    for (let r = 0; r < values.length; r++) {
+      for (let c = 0; c < values[r].length; c++) {
+        if (String(values[r][c]).includes(name)) {
+          fonts[r][c] = "line-through";
+          colors[r][c] = "#ff0000";
+        }
+      }
+    }
+
+    range.setFontLines(fonts);
+    range.setFontColors(colors);
+    return ContentService.createTextOutput(`${name} erfolgreich abgemeldet.`);
+  } else {
+    const diffMin = Math.ceil((abholZeit - now) / 60000);
+    return ContentService.createTextOutput(`${name}, bitte warte noch ${diffMin} Minute(n), um dich abzumelden.`);
+  }
+}
+
+// Reset um Mitternacht
+function resetFormatierung() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("SystemSystem");
+  const range = sheet.getDataRange();
+  range.setFontLine("none");
+  range.setFontColor("black");
+}
