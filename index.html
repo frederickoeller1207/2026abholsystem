@@ -6,16 +6,13 @@
   <title>Abholzeiten – Übersicht</title>
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- React + Babel (für JSX ohne Build) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase (Compat, kein Auth nötig) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-  <!-- Optional: date-fns nur falls du später brauchst -->
   <link rel="icon" href="data:,">
   <style>html,body,#root{height:100%}</style>
 </head>
@@ -109,9 +106,7 @@
       }
 
       useEffect(()=>{ loadAll(dateStr); },[dateStr]);
-
       const effectiveTimes = useMemo(()=> oneTimes || weeklyTimes || {}, [oneTimes, weeklyTimes]);
-
       const entries = useMemo(()=>{
         const arr = children.map(k => [k.name, effectiveTimes[k.name] || null]);
         arr.sort((a,b)=>{
@@ -121,7 +116,6 @@
         });
         return arr;
       },[children, effectiveTimes]);
-
       const grouped = useMemo(()=> groupByTime(entries), [entries]);
 
       return (
@@ -146,7 +140,7 @@
                   const kid = children.find(k=>k.name===n);
                   const isAb = kid?.status === 'abgemeldet';
                   let when = '';
-                  if (kid?.abgemeldetAm){
+                  if (isAb && kid?.abgemeldetAm){
                     const d = new Date(kid.abgemeldetAm);
                     const hh = String(d.getHours()).padStart(2,'0');
                     const mm = String(d.getMinutes()).padStart(2,'0');
