@@ -100,12 +100,11 @@
             const [hh,mm] = timeStr.split(':').map(v=>parseInt(v,10));
             const sched = new Date(); sched.setHours(hh, mm, 0, 0);
 
-            const diffMs = now.getTime() - sched.getTime();
+            const diffMs = sched.getTime() - now.getTime();
             const fiveMinMs = 5*60*1000;
 
-            // Logik: Abmeldung ist 5 Minuten vor der Zeit möglich
-            if (diffMs < -fiveMinMs){
-              const mins = Math.ceil((diffMs + fiveMinMs)/-60000);
+            if (diffMs > fiveMinMs){
+              const mins = Math.ceil((diffMs - fiveMinMs)/60000);
               setMsg(`${name}, bitte warte noch ${mins} Minute(n), um dich abzumelden.`);
               return;
             }
