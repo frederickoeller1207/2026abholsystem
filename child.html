@@ -5,140 +5,180 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Abmeldung</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-      body { font-family: 'Inter', sans-serif; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
     </style>
 </head>
-<body class="bg-gray-100 p-4 flex items-center justify-center min-h-screen">
-    <div id="root" class="container mx-auto">
-        <!-- Die React-App wird hier gerendert -->
-    </div>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel" data-type="module">
+        // Import der Firebase- und Hilfsbibliotheken
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInWithCustomToken, onAuthStateChanged, signInAnonymously } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, getDocs, onSnapshot, query, where } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+        import { format, formatISO, parseISO, isBefore, isAfter, differenceInMinutes, startOfDay, getDay, addDays, subDays } from 'https://cdn.jsdelivr.net/npm/date-fns@2.28.0/esm/index.js';
+        import { de } from 'https://cdn.jsdelivr.net/npm/date-fns@2.28.0/esm/locale/de/index.js';
 
-    <script type="module">
-        import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
-        import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { format, isAfter } from 'https://esm.sh/date-fns@2.30.0';
-        import { de } from 'https://esm.sh/date-fns@2.30.0/locale/de';
+        const { useState, useEffect, createElement } = React;
+        const ReactDOM = ReactDOM.createRoot(document.getElementById('root'));
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyAYf7wZxI7szM2jdpelENIvVrDHE25M0Jc",
-            authDomain: "neuabholung.firebaseapp.com",
-            databaseURL: "https://neuabholung-default-rtdb.europe-west1.firebasedatabase.app",
-            projectId: "neuabholung",
-            storageBucket: "neuabholung.firebasestorage.app",
-            messagingSenderId: "982992894873",
-            appId: "1:982992894873:web:750e72ee79f585c1717108"
-        };
+        // Globale Variablen
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : 'null');
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
+        if (!firebaseConfig) {
+            console.error("Firebase-Konfiguration nicht gefunden.");
+        }
+        
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
         const auth = getAuth(app);
+        const db = getFirestore(app);
 
-        const cardClass = "bg-white p-6 rounded-xl shadow-md my-4 text-center";
-        const buttonClass = "bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-full transition-colors duration-200";
+        // Helper-Funktion für die Datenpfade
+        const getDataPath = (collectionName, userId) => {
+            return `/artifacts/${appId}/users/${userId}/${collectionName}`;
+        };
+        
+        // Hilfsfunktion zur Formatierung des Wochentags auf Deutsch
+        const formatDay = (date) => {
+            const weekdays = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+            return weekdays[getDay(date)];
+        };
 
-        const App = () => {
-            const [childName, setChildName] = useState('');
-            const [childId, setChildId] = useState('');
-            const [abmeldungStatus, setAbmeldungStatus] = useState('Lade...');
-            const [loading, setLoading] = useState(true);
-            const [authReady, setAuthReady] = useState(false);
-            const [userId, setUserId] = useState('');
-            const [pickupTimes, setPickupTimes] = useState({});
+        //----------------------------------------------------------------------------------------------------------------------
+        //
+        //  3. Kinderseite (ChildSignout)
+        //
+        //----------------------------------------------------------------------------------------------------------------------
+        const ChildSignout = () => {
+            const [userId, setUserId] = useState(null);
+            const [message, setMessage] = useState('Verbindung wird hergestellt...');
+            const urlParams = new URLSearchParams(window.location.search);
+            const childName = urlParams.get('name');
 
             useEffect(() => {
-              const urlParams = new URLSearchParams(window.location.search);
-              setChildName(urlParams.get('name'));
-              setChildId(urlParams.get('id'));
+                const authenticate = async () => {
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Fehler bei der Authentifizierung:", error);
+                        setMessage('Fehler bei der Authentifizierung.');
+                    }
+                };
+                authenticate();
 
-              const initAuth = async () => {
-                  try {
-                      if (initialAuthToken) {
-                          await signInWithCustomToken(auth, initialAuthToken);
-                      } else {
-                          await signInAnonymously(auth);
-                      }
-                  } catch (error) {
-                      console.error("Fehler bei der Anmeldung:", error);
-                  }
-              };
-              initAuth();
+                const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                    } else {
+                        console.warn("Benutzer nicht authentifiziert.");
+                    }
+                });
 
-              const unsubscribe = onAuthStateChanged(auth, (user) => {
-                  if (user) {
-                      setUserId(user.uid);
-                      setAuthReady(true);
-                  } else {
-                      setAuthReady(true);
-                  }
-              });
-              return () => unsubscribe();
+                return () => unsubscribeAuth();
             }, []);
 
             useEffect(() => {
-                if (!authReady || !userId) return;
-
-                const pickupTimesPath = `/artifacts/${appId}/users/${userId}/pickupTimes`;
-                getDoc(doc(db, pickupTimesPath, format(new Date(), 'EEEE', { locale: de })))
-                    .then(docSnap => {
-                        if (docSnap.exists()) {
-                            setPickupTimes(docSnap.data().times);
-                        }
-                    })
-                    .catch(error => console.error("Fehler beim Laden der Abholzeiten:", error))
-                    .finally(() => setLoading(false));
-            }, [authReady, userId]);
-
-            const handleAbmelden = async () => {
-                const now = new Date();
-                const weekday = format(now, 'EEEE', { locale: de });
-                const abholzeitStr = pickupTimes[childName];
-                const childDocRef = doc(db, `/artifacts/${appId}/users/${userId}/children`, childId);
-
-                if (!abholzeitStr) {
-                    setAbmeldungStatus(`Keine Abholzeit für ${childName} hinterlegt.`);
+                if (!userId || !childName) {
+                    if (!childName) setMessage('Kein Kind in der URL angegeben.');
                     return;
                 }
 
-                const [std, min] = abholzeitStr.split(':').map(Number);
-                const abholZeit = new Date(now);
-                abholZeit.setHours(std, min, 0);
+                const runSignoutLogic = async () => {
+                    try {
+                        const childrenPath = getDataPath('children', userId);
+                        const q = query(collection(db, childrenPath), where("name", "==", childName));
+                        const querySnapshot = await getDocs(q);
 
-                const abmeldezeitpunkt = new Date(abholZeit);
-                abmeldezeitpunkt.setMinutes(abmeldezeitpunkt.getMinutes() - 2);
+                        if (querySnapshot.empty) {
+                            setMessage(`Keine Abholzeit für ${childName} hinterlegt.`);
+                            return;
+                        }
 
-                if (isAfter(now, abmeldezeitpunkt)) {
-                    await updateDoc(childDocRef, { status: 'abgemeldet', abgemeldetAm: new Date().toISOString() });
-                    setAbmeldungStatus(`${childName} erfolgreich abgemeldet.`);
-                } else {
-                    const diffMin = Math.ceil((abmeldezeitpunkt - now) / 60000);
-                    setAbmeldungStatus(`${childName}, bitte warte noch ${diffMin} Minute(n), um dich abzumelden.`);
-                }
-            };
+                        const childDoc = querySnapshot.docs[0];
+                        const today = new Date();
+                        const todayString = format(today, 'yyyy-MM-dd');
+                        const todayDay = formatDay(today);
+
+                        let pickupTime;
+                        
+                        // Zuerst einmalige Abholzeiten prüfen
+                        const oneTimePickupTimesPath = getDataPath('oneTimePickupTimes', userId);
+                        const oneTimeDocRef = doc(db, oneTimePickupTimesPath, todayString);
+                        const oneTimeDocSnap = await getDocs(query(collection(db, oneTimePickupTimesPath), where("__name__", "==", todayString)));
+                        
+                        if (!oneTimeDocSnap.empty && oneTimeDocSnap.docs[0].data().times?.[childName]) {
+                            pickupTime = oneTimeDocSnap.docs[0].data().times[childName];
+                        } else {
+                            // Falls nicht vorhanden, reguläre Abholzeiten prüfen
+                            const pickupTimesPath = getDataPath('pickupTimes', userId);
+                            const regularDocRef = doc(db, pickupTimesPath, todayDay);
+                            const regularDocSnap = await getDocs(query(collection(db, pickupTimesPath), where("__name__", "==", todayDay)));
+                            
+                            if (!regularDocSnap.empty && regularDocSnap.docs[0].data().times?.[childName]) {
+                                pickupTime = regularDocSnap.docs[0].data().times[childName];
+                            }
+                        }
+
+                        if (!pickupTime) {
+                            setMessage(`Keine Abholzeit für ${childName} hinterlegt.`);
+                            return;
+                        }
+
+                        const [pickupHour, pickupMinute] = pickupTime.split(':').map(Number);
+                        const pickupDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), pickupHour, pickupMinute);
+                        const minutesToPickup = differenceInMinutes(pickupDateTime, today);
+
+                        if (minutesToPickup >= 2) {
+                            setMessage(`${childName}, bitte warte noch ${minutesToPickup} Minute(n), um dich abzumelden.`);
+                        } else {
+                            await setDoc(doc(db, childrenPath, childDoc.id), {
+                                ...childDoc.data(),
+                                status: 'abgemeldet',
+                                abgemeldetAm: formatISO(today)
+                            });
+                            setMessage(`${childName} erfolgreich abgemeldet.`);
+                        }
+
+                    } catch (e) {
+                        console.error("Fehler bei der Abmeldung:", e);
+                        setMessage("Ein Fehler ist aufgetreten. Bitte versuche es später erneut.");
+                    }
+                };
+
+                runSignoutLogic();
+            }, [userId, childName]);
             
-            // Abmeldevorgang direkt beim Laden der Seite starten
-            useEffect(() => {
-                if(authReady && childName && childId) {
-                    handleAbmelden();
-                }
-            }, [authReady, childName, childId]);
-
+            // UI-Komponente für die Kinderseite
             return (
-                <div className={cardClass}>
-                    <h1 className="text-2xl font-bold mb-4">Hallo {childName}!</h1>
-                    <p className="text-lg text-gray-700">{abmeldungStatus}</p>
+                <div className="flex items-center justify-center min-h-screen p-4">
+                    <div className="bg-white p-8 rounded-xl shadow-lg text-center max-w-md w-full">
+                        <h1 className="text-2xl font-bold mb-4 text-indigo-800">Abmeldung</h1>
+                        <p className="text-xl text-gray-700">{message}</p>
+                    </div>
                 </div>
             );
         };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(React.createElement(App));
+        
+        // Rendert die ChildSignout-Komponente in das Root-Element
+        const rootElement = document.getElementById('root');
+        if (rootElement) {
+            const root = ReactDOM.createRoot(rootElement);
+            root.render(createElement(ChildSignout));
+        }
     </script>
 </body>
 </html>
