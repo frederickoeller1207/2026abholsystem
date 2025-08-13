@@ -135,7 +135,7 @@
         return `${baseUrl}child.html?${p.toString()}`;
       }
 
-      // Korrigierte Funktion
+      // Korrigierte Funktion: Prüft den 'status'
       async function computePresence(){
         const list = [];
         for(const k of children){
