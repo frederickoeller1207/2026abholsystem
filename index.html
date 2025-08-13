@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ansichtsseite Abholung</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+      body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+
+    <div id="root" class="container mx-auto">
+        <!-- Die React-App wird hier gerendert -->
+    </div>
+
+    <script type="module">
+        import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
+        import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { format, formatISO, isAfter, isToday, isYesterday } from 'https://esm.sh/date-fns@2.30.0';
+        import { de } from 'https://esm.sh/date-fns@2.30.0/locale/de';
+
+        // Die Firebase-Konfiguration wird vom System zur Verfügung gestellt.
+        const firebaseConfig = {
+          apiKey: "AIzaSyAYf7wZxI7szM2jdpelENIvVrDHE25M0Jc",
+          authDomain: "neuabholung.firebaseapp.com",
+          databaseURL: "https://neuabholung-default-rtdb.europe-west1.firebasedatabase.app",
+          projectId: "neuabholung",
+          storageBucket: "neuabholung.firebasestorage.app",
+          messagingSenderId: "982992894873",
+          appId: "1:982992894873:web:750e72ee79f585c1717108"
+        };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        // Initialisierung der Firebase-App
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // React-Komponente für die Ansichtsseite
+        const App = () => {
+            const [children, setChildren] = useState([]);
+            const [pickupTimes, setPickupTimes] = useState({});
+            const [oneTimePickupTimes, setOneTimePickupTimes] = useState({});
+            const [loading, setLoading] = useState(true);
+            const [authReady, setAuthReady] = useState(false);
+            const [userId, setUserId] = useState('');
+            const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+            // Firebase-Authentifizierung
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Fehler bei der Anmeldung:", error);
+                    }
+                };
+                initAuth();
+
+                const unsubscribe = onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                        setAuthReady(true);
+                    } else {
+                        setAuthReady(true);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // Firestore-Listener
+            useEffect(() => {
+                if (!authReady || !userId) return;
+
+                const childrenPath = `/artifacts/${appId}/users/${userId}/children`;
+                const pickupTimesPath = `/artifacts/${appId}/users/${userId}/pickupTimes`;
+                const oneTimePickupTimesPath = `/artifacts/${appId}/users/${userId}/oneTimePickupTimes`;
+
+                const unsubscribeChildren = onSnapshot(collection(db, childrenPath), (snapshot) => {
+                    const childrenData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setChildren(childrenData);
+                }, (error) => console.error("Fehler beim Laden der Kinder:", error));
+
+                const unsubscribePickupTimes = onSnapshot(collection(db, pickupTimesPath), (snapshot) => {
+                    const timesData = {};
+                    snapshot.docs.forEach(doc => {
+                        timesData[doc.id] = doc.data().times;
+                    });
+                    setPickupTimes(timesData);
+                }, (error) => console.error("Fehler beim Laden der Abholzeiten:", error));
+                
+                const unsubscribeOneTimePickupTimes = onSnapshot(collection(db, oneTimePickupTimesPath), (snapshot) => {
+                  const oneTimeTimesData = {};
+                  snapshot.docs.forEach(doc => {
+                    oneTimeTimesData[doc.id] = doc.data().times;
+                  });
+                  setOneTimePickupTimes(oneTimeTimesData);
+                  setLoading(false);
+                }, (error) => console.error("Fehler beim Laden der einmaligen Abholzeiten:", error));
+
+                return () => {
+                    unsubscribeChildren();
+                    unsubscribePickupTimes();
+                    unsubscribeOneTimePickupTimes();
+                };
+            }, [authReady, userId]);
+
+            if (loading || !authReady) {
+                return <div className="text-center text-gray-500 text-lg mt-8">Lade Daten...</div>;
+            }
+
+            const getPickupTime = (childName, date) => {
+              const formattedDate = format(date, 'yyyy-MM-dd');
+              const weekday = format(date, 'EEEE', { locale: de });
+              return oneTimePickupTimes[formattedDate]?.[childName] || pickupTimes[weekday]?.[childName] || 'N/A';
+            };
+
+            const getChildStatus = (childName, date) => {
+              const child = children.find(c => c.name === childName);
+              const formattedDate = format(date, 'yyyy-MM-dd');
+
+              if (!child) return 'anwesend';
+              
+              if (child.abgemeldetAm && isAfter(new Date(child.abgemeldetAm), new Date(formattedDate + 'T23:59:59'))) {
+                return 'abgemeldet';
+              }
+              if (child.abgemeldetAm && format(new Date(child.abgemeldetAm), 'yyyy-MM-dd') === formattedDate) {
+                  return 'abgemeldet';
+              }
+              return 'anwesend';
+            };
+
+            const dayOfWeek = format(new Date(selectedDate), 'EEEE', { locale: de });
+            const childrenWithTimes = children.map(child => ({
+              ...child,
+              pickupTime: getPickupTime(child.name, new Date(selectedDate)),
+              status: getChildStatus(child.name, new Date(selectedDate))
+            }));
+
+            // Kinder nach Abholzeit gruppieren und sortieren
+            const groupedChildren = childrenWithTimes.reduce((acc, child) => {
+              if (child.pickupTime && child.pickupTime !== 'N/A') {
+                const time = child.pickupTime;
+                if (!acc[time]) {
+                  acc[time] = [];
+                }
+                acc[time].push(child);
+              }
+              return acc;
+            }, {});
+
+            const sortedTimes = Object.keys(groupedChildren).sort();
+
+            return (
+                <div class="p-8 bg-white shadow-lg rounded-xl">
+                    <h1 class="text-4xl font-extrabold text-center text-gray-900 mb-6">Abholzeiten</h1>
+                    <div class="flex flex-col items-center mb-6">
+                      <label for="date-picker" class="text-lg font-medium text-gray-700 mb-2">Datum auswählen:</label>
+                      <input 
+                        type="date" 
+                        id="date-picker" 
+                        value={selectedDate} 
+                        onChange={(e) => setSelectedDate(e.target.value)} 
+                        class="p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p class="mt-2 text-xl font-bold text-gray-800">{dayOfWeek}</p>
+                    </div>
+                    
+                    {sortedTimes.length === 0 ? (
+                      <p class="text-center text-gray-600 mt-10">Keine Abholzeiten für diesen Tag hinterlegt.</p>
+                    ) : (
+                      <div class="space-y-8">
+                        {sortedTimes.map(time => (
+                          <div key={time} class="text-center">
+                            <h2 class="text-3xl font-bold text-blue-600 mb-2">{time} Uhr</h2>
+                            <div class="flex flex-wrap justify-center gap-4">
+                              {groupedChildren[time].map(child => (
+                                <span 
+                                  key={child.id} 
+                                  class={`text-xl p-2 rounded-lg font-semibold transition-colors duration-200 ${
+                                    child.status === 'abgemeldet' 
+                                      ? 'text-red-600 line-through' 
+                                      : 'text-green-600'
+                                  }`}
+                                >
+                                  {child.name}
+                                  {child.status === 'abgemeldet' && (
+                                    <span class="block text-sm text-gray-500 font-normal">
+                                      abgemeldet: {child.abgemeldetAm ? format(new Date(child.abgemeldetAm), 'HH:mm') : ''}
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
