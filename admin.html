@@ -1,319 +1,260 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Abholzeiten - Admin</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
-            color: #1f2937;
-        }
-    </style>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Abholzeiten – Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React + Babel -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase (Compat) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <link rel="icon" href="data:,">
+  <style>html,body,#root{height:100%}</style>
 </head>
-<body>
-    <div id="root"></div>
-    
-    <script type="text/babel" data-type="module">
-        // Import der Firebase- und Hilfsbibliotheken
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-        import { getAuth, signInWithCustomToken, onAuthStateChanged, signInAnonymously } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-        import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, getDocs, onSnapshot, query, where } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-        import { format, formatISO, parseISO, isBefore, isAfter, differenceInMinutes, startOfDay, getDay, addDays, subDays } from 'https://cdn.jsdelivr.net/npm/date-fns@2.28.0/esm/index.js';
-        import { de } from 'https://cdn.jsdelivr.net/npm/date-fns@2.28.0/esm/locale/de/index.js';
+<body class="bg-slate-50 text-slate-900">
+  <div id="root" class="h-full"></div>
 
-        const { useState, useEffect, createElement } = React;
-        const ReactDOM = ReactDOM.createRoot(document.getElementById('root'));
+  <script type="text/babel">
+    const { useEffect, useMemo, useState } = React;
+    const WEEKDAYS = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+    const qs = new URLSearchParams(location.search);
+    const userId = qs.get('u') || 'public';
 
-        // Globale Variablen
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : 'null');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+    // Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyAYf7wZxI7szM2jdpelENIvVrDHE25M0Jc",
+      authDomain: "neuabholung.firebaseapp.com",
+      databaseURL: "https://neuabholung-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "neuabholung",
+      storageBucket: "neuabholung.firebasestorage.app",
+      messagingSenderId: "982992894873",
+      appId: "1:982992894873:web:750e72ee79f585c1717108"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
 
-        if (!firebaseConfig) {
-            console.error("Firebase-Konfiguration nicht gefunden.");
+    function todayKey(){
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+
+    async function resetIfNewDay(u){
+      if(!u) return;
+      const metaRef = db.doc(`users/${u}/meta/dailyReset`);
+      const snap = await metaRef.get();
+      const last = snap.exists ? snap.data().lastReset : null;
+      const today = todayKey();
+      if (last === today) return;
+
+      const kidsSnap = await db.collection(`users/${u}/children`).get();
+      const batch = db.batch();
+      kidsSnap.forEach(docSnap => {
+        batch.update(docSnap.ref, { status:'anwesend', abgemeldetAm: null });
+      });
+      batch.set(metaRef, { lastReset: today }, { merge: true });
+      await batch.commit();
+    }
+
+    function AdminApp(){
+      const [children,setChildren] = useState([]);
+      const [kidName,setKidName] = useState("");
+
+      const [weekday,setWeekday] = useState("Montag");
+      const [weeklyTimes,setWeeklyTimes] = useState({});
+
+      const [dateStr,setDateStr] = useState(()=> new Date().toISOString().slice(0,10));
+      const [oneTimes,setOneTimes] = useState({});
+
+      const [checkDate,setCheckDate] = useState(()=> new Date().toISOString().slice(0,10));
+      const [present,setPresent] = useState([]);
+
+      const baseUrl = location.origin + location.pathname.replace('admin.html','');
+
+      async function loadChildren(){
+        const snap = await db.collection(`users/${userId}/children`).get();
+        setChildren(snap.docs.map(d=>({id:d.id, ...d.data()})));
+      }
+      async function loadWeekly(day){
+        const ref = db.doc(`users/${userId}/pickupTimes/${day}`);
+        const s = await ref.get();
+        setWeeklyTimes(s.exists ? (s.data().times || {}) : {});
+      }
+      async function loadOne(dateStr){
+        const ref = db.doc(`users/${userId}/oneTimePickupTimes/${dateStr}`);
+        const s = await ref.get();
+        setOneTimes(s.exists ? (s.data().times || {}) : {});
+      }
+
+      useEffect(()=>{
+        (async ()=>{
+          await resetIfNewDay(userId);
+          await loadChildren();
+          await loadWeekly(weekday);
+          await loadOne(dateStr);
+        })();
+      },[]);
+
+      useEffect(()=>{ loadWeekly(weekday); },[weekday]);
+      useEffect(()=>{ loadOne(dateStr); },[dateStr]);
+
+      async function addChild(){
+        const name = (kidName||"").trim();
+        if(!name) return;
+        await db.collection(`users/${userId}/children`).add({ name, status:'anwesend', abgemeldetAm: null });
+        setKidName("");
+        await loadChildren();
+      }
+      async function resetChild(id){
+        await db.doc(`users/${userId}/children/${id}`).update({ status:'anwesend', abgemeldetAm: null });
+        await loadChildren();
+      }
+      async function removeChild(id){
+        await db.doc(`users/${userId}/children/${id}`).delete();
+        await loadChildren();
+      }
+
+      async function saveWeekly(){
+        await db.doc(`users/${userId}/pickupTimes/${weekday}`).set({ times: weeklyTimes }, { merge:true });
+        alert("Reguläre Zeiten gespeichert.");
+      }
+      async function saveOne(){
+        await db.doc(`users/${userId}/oneTimePickupTimes/${dateStr}`).set({ times: oneTimes }, { merge:true });
+        alert("Einmalige Zeiten gespeichert.");
+      }
+
+      function indexLink(){
+        return `${baseUrl}index.html?u=${userId}`;
+      }
+      function childLink(k){
+        const p = new URLSearchParams({ u:userId, name:k.name, cid:k.id });
+        return `${baseUrl}child.html?${p.toString()}`;
+      }
+
+      async function computePresence(){
+        const list = [];
+        for(const k of children){
+          let isAb = false;
+          if (k.abgemeldetAm){
+            const d = new Date(k.abgemeldetAm);
+            const iso = d.toISOString().slice(0,10);
+            if (iso === checkDate) isAb = true;
+          }
+          if (!isAb) list.push(k.name);
         }
-        
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        setPresent(list);
+      }
+      useEffect(()=>{ computePresence(); },[children, checkDate]);
 
-        // Helper-Funktion für die Datenpfade
-        const getDataPath = (collectionName, userId) => {
-            return `/artifacts/${appId}/users/${userId}/${collectionName}`;
-        };
-        
-        // Hilfsfunktion zur Formatierung des Wochentags auf Deutsch
-        const formatDay = (date) => {
-            const weekdays = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
-            return weekdays[getDay(date)];
-        };
+      return (
+        <div className="max-w-5xl mx-auto p-4 space-y-6">
+          <header className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold">Admin</h1>
+              <div className="text-xs text-slate-500">Nutzer-ID: <span className="font-mono">{userId}</span> · Auto-Reset aktiv</div>
+            </div>
+            <a className="text-sm underline" target="_blank" href={indexLink()}>Öffentliche Ansicht öffnen</a>
+          </header>
 
-        //----------------------------------------------------------------------------------------------------------------------
-        //
-        //  2. Admin-Seite (AdminView)
-        //
-        //----------------------------------------------------------------------------------------------------------------------
-        const AdminView = () => {
-            const [userId, setUserId] = useState(null);
-            const [children, setChildren] = useState([]);
-            const [pickupTimes, setPickupTimes] = useState({});
-            const [oneTimePickupTimes, setOneTimePickupTimes] = useState({});
-            const [newChildName, setNewChildName] = useState('');
-            const [editChild, setEditChild] = useState(null);
-            const [newPickupTime, setNewPickupTime] = useState({});
-            const [newOneTimeDate, setNewOneTimeDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-            const [newOneTimePickupTime, setNewOneTimePickupTime] = useState({});
-
-            useEffect(() => {
-                const authenticate = async () => {
-                    try {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    } catch (error) {
-                        console.error("Fehler bei der Authentifizierung:", error);
-                    }
-                };
-                authenticate();
-
-                const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        setUserId(user.uid);
-                    } else {
-                        console.warn("Benutzer nicht authentifiziert.");
-                        setUserId(null);
-                    }
-                });
-
-                return () => unsubscribeAuth();
-            }, []);
-
-            useEffect(() => {
-                if (!userId) return;
-                const cleanupFunctions = [];
-
-                const childrenPath = getDataPath('children', userId);
-                const unsubscribeChildren = onSnapshot(collection(db, childrenPath), (snapshot) => {
-                    const childrenData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setChildren(childrenData);
-                });
-                cleanupFunctions.push(unsubscribeChildren);
-
-                const pickupTimesPath = getDataPath('pickupTimes', userId);
-                const unsubscribePickupTimes = onSnapshot(collection(db, pickupTimesPath), (snapshot) => {
-                    const timesData = {};
-                    snapshot.docs.forEach(doc => {
-                        timesData[doc.id] = doc.data().times;
-                    });
-                    setPickupTimes(timesData);
-                });
-                cleanupFunctions.push(unsubscribePickupTimes);
-
-                const oneTimePickupTimesPath = getDataPath('oneTimePickupTimes', userId);
-                const unsubscribeOneTimePickupTimes = onSnapshot(collection(db, oneTimePickupTimesPath), (snapshot) => {
-                    const timesData = {};
-                    snapshot.docs.forEach(doc => {
-                        timesData[doc.id] = doc.data().times;
-                    });
-                    setOneTimePickupTimes(timesData);
-                });
-                cleanupFunctions.push(unsubscribeOneTimePickupTimes);
-
-                return () => cleanupFunctions.forEach(fn => fn());
-            }, [userId]);
-
-            const addChild = async () => {
-                if (!newChildName || !userId) return;
-                try {
-                    const childrenPath = getDataPath('children', userId);
-                    await addDoc(collection(db, childrenPath), {
-                        name: newChildName,
-                        status: 'anwesend',
-                        abgemeldetAm: null,
-                    });
-                    setNewChildName('');
-                } catch (e) {
-                    console.error("Fehler beim Hinzufügen des Kindes:", e);
-                }
-            };
-
-            const updateChild = async () => {
-                if (!editChild || !editChild.name || !userId) return;
-                try {
-                    const childrenPath = getDataPath('children', userId);
-                    const childDocRef = doc(db, childrenPath, editChild.id);
-                    await setDoc(childDocRef, { name: editChild.name, status: 'anwesend', abgemeldetAm: null });
-                    setEditChild(null);
-                } catch (e) {
-                    console.error("Fehler beim Aktualisieren des Kindes:", e);
-                }
-            };
-
-            const deleteChild = async (childId) => {
-                if (!userId) return;
-                try {
-                    const childrenPath = getDataPath('children', userId);
-                    const childDocRef = doc(db, childrenPath, childId);
-                    await deleteDoc(childDocRef);
-                } catch (e) {
-                    console.error("Fehler beim Löschen des Kindes:", e);
-                }
-            };
-
-            const updateRegularPickupTime = async (day, childName, time) => {
-                if (!userId) return;
-                try {
-                    const pickupTimesPath = getDataPath('pickupTimes', userId);
-                    const docRef = doc(db, pickupTimesPath, day);
-                    const newTimes = { ...pickupTimes[day], [childName]: time };
-                    await setDoc(docRef, { times: newTimes }, { merge: true });
-                } catch (e) {
-                    console.error("Fehler beim Aktualisieren der regulären Abholzeit:", e);
-                }
-            };
-
-            const updateOneTimePickupTime = async (date, childName, time) => {
-                if (!userId) return;
-                try {
-                    const oneTimePickupTimesPath = getDataPath('oneTimePickupTimes', userId);
-                    const docRef = doc(db, oneTimePickupTimesPath, date);
-                    const newTimes = { ...oneTimePickupTimes[date], [childName]: time };
-                    await setDoc(docRef, { times: newTimes }, { merge: true });
-                } catch (e) {
-                    console.error("Fehler beim Aktualisieren der einmaligen Abholzeit:", e);
-                }
-            };
-            
-            // UI-Komponente für die Admin-Seite
-            return (
-                <div className="container mx-auto p-4 md:p-8 bg-white shadow-lg rounded-xl mt-8 max-w-4xl">
-                    <h1 className="text-3xl font-bold mb-6 text-center text-indigo-800">Admin-Verwaltung</h1>
-                    <div className="space-y-8">
-                        {/* Kinderverwaltung */}
-                        <div>
-                            <h2 className="text-2xl font-semibold mb-4 text-indigo-700">Kinder verwalten</h2>
-                            <div className="flex space-x-2 mb-4">
-                                <input
-                                    type="text"
-                                    value={editChild ? editChild.name : newChildName}
-                                    onChange={(e) => editChild ? setEditChild({ ...editChild, name: e.target.value }) : setNewChildName(e.target.value)}
-                                    placeholder="Name des Kindes"
-                                    className="flex-grow p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                                <button
-                                    onClick={editChild ? updateChild : addChild}
-                                    className="bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 transition duration-200"
-                                >
-                                    {editChild ? 'Speichern' : 'Hinzufügen'}
-                                </button>
-                                {editChild && (
-                                    <button
-                                        onClick={() => setEditChild(null)}
-                                        className="bg-gray-400 text-white p-3 rounded-lg hover:bg-gray-500 transition duration-200"
-                                    >
-                                        Abbrechen
-                                    </button>
-                                )}
-                            </div>
-                            <ul className="space-y-2">
-                                {children.map(child => (
-                                    <li key={child.id} className="p-3 bg-gray-100 rounded-lg shadow-sm flex justify-between items-center">
-                                        <span className="font-medium">{child.name}</span>
-                                        <div className="space-x-2">
-                                            <button onClick={() => setEditChild(child)} className="text-blue-500 hover:text-blue-700">Bearbeiten</button>
-                                            <button onClick={() => deleteChild(child.id)} className="text-red-500 hover:text-red-700">Löschen</button>
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                        
-                        {/* Links generieren */}
-                        <div>
-                            <h2 className="text-2xl font-semibold mb-4 text-indigo-700">Abmelde-Links</h2>
-                            <ul className="space-y-2">
-                                {children.map(child => (
-                                    <li key={child.id} className="p-3 bg-gray-100 rounded-lg shadow-sm flex justify-between items-center flex-wrap">
-                                        <span className="font-medium">{child.name}</span>
-                                        <span className="text-sm text-gray-500 break-all ml-2">
-                                            {window.location.origin}/child.html?name={encodeURIComponent(child.name)}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-
-                        {/* Reguläre Abholzeiten verwalten */}
-                        <div>
-                            <h2 className="text-2xl font-semibold mb-4 text-indigo-700">Reguläre Abholzeiten</h2>
-                            <div className="space-y-4">
-                                {['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'].map(day => (
-                                    <div key={day} className="p-4 bg-gray-100 rounded-lg shadow-sm">
-                                        <h3 className="font-bold text-lg mb-2">{day}</h3>
-                                        {children.map(child => (
-                                            <div key={child.id} className="flex items-center space-x-2 mb-2">
-                                                <span className="w-1/3">{child.name}:</span>
-                                                <input
-                                                    type="time"
-                                                    value={pickupTimes[day]?.[child.name] || ''}
-                                                    onChange={(e) => updateRegularPickupTime(day, child.name, e.target.value)}
-                                                    className="w-2/3 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Einmalige Abholzeiten verwalten */}
-                        <div>
-                            <h2 className="text-2xl font-semibold mb-4 text-indigo-700">Einmalige Abholzeiten</h2>
-                            <div className="mb-4">
-                                <input
-                                    type="date"
-                                    value={newOneTimeDate}
-                                    onChange={(e) => setNewOneTimeDate(e.target.value)}
-                                    className="p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                            </div>
-                            <div className="p-4 bg-gray-100 rounded-lg shadow-sm">
-                                <h3 className="font-bold text-lg mb-2">Abholzeiten für {format(parseISO(newOneTimeDate), 'd. MMMM yyyy', { locale: de })}</h3>
-                                {children.map(child => (
-                                    <div key={child.id} className="flex items-center space-x-2 mb-2">
-                                        <span className="w-1/3">{child.name}:</span>
-                                        <input
-                                            type="time"
-                                            value={oneTimePickupTimes[newOneTimeDate]?.[child.name] || ''}
-                                            onChange={(e) => updateOneTimePickupTime(newOneTimeDate, child.name, e.target.value)}
-                                            className="w-2/3 p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+          {/* Kinderverwaltung */}
+          <section className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-lg font-semibold mb-3">Kinderverwaltung</h2>
+            <div className="flex gap-2 mb-4">
+              <input className="border rounded px-3 py-2 flex-1" placeholder="Name des Kindes"
+                value={kidName} onChange={e=>setKidName(e.target.value)} />
+              <button className="bg-emerald-600 text-white rounded px-4" onClick={addChild}>Hinzufügen</button>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              {children.map(k=>(
+                <div key={k.id} className="border rounded-lg p-3 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <div className="font-medium">{k.name}</div>
+                    <div className="text-xs text-slate-500">Status: {k.status || 'anwesend'}</div>
+                    <div className="text-xs text-slate-500 break-all">
+                      Link: <a className="underline" target="_blank" href={childLink(k)}>{childLink(k)}</a>
                     </div>
-                    <div className="mt-8 text-sm text-center text-gray-500">
-                        Firebase-Benutzer-ID: {userId || 'Nicht authentifiziert'}
-                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button className="text-sm bg-sky-600 text-white rounded px-3 py-1" onClick={()=>resetChild(k.id)}>Reset</button>
+                    <button className="text-sm bg-red-600 text-white rounded px-3 py-1" onClick={()=>removeChild(k.id)}>Löschen</button>
+                  </div>
                 </div>
-            );
-        };
-        
-        // Rendert die AdminView-Komponente in das Root-Element
-        const rootElement = document.getElementById('root');
-        if (rootElement) {
-            const root = ReactDOM.createRoot(rootElement);
-            root.render(createElement(AdminView));
-        }
-    </script>
+              ))}
+            </div>
+          </section>
+
+          {/* Reguläre Abholzeiten */}
+          <section className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-lg font-semibold mb-3">Reguläre Abholzeiten</h2>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <label className="text-sm">Wochentag:</label>
+              <select className="border rounded px-3 py-2" value={weekday} onChange={e=>setWeekday(e.target.value)}>
+                {WEEKDAYS.slice(1,6).map(d=><option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              {children.map(k=>(
+                <div key={k.id} className="flex items-center gap-2">
+                  <div className="w-48">{k.name}</div>
+                  <input className="border rounded px-3 py-2" placeholder="HH:mm"
+                    value={weeklyTimes[k.name] || ''} onChange={e=>setWeeklyTimes({...weeklyTimes, [k.name]: e.target.value})}/>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3">
+              <button className="bg-slate-900 text-white rounded px-4 py-2" onClick={saveWeekly}>Speichern</button>
+            </div>
+          </section>
+
+          {/* Einmalige Abholzeiten */}
+          <section className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-lg font-semibold mb-3">Einmalige Abholzeiten</h2>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <label className="text-sm">Datum:</label>
+              <input type="date" className="border rounded px-3 py-2" value={dateStr} onChange={e=>setDateStr(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              {children.map(k=>(
+                <div key={k.id} className="flex items-center gap-2">
+                  <div className="w-48">{k.name}</div>
+                  <input className="border rounded px-3 py-2" placeholder="HH:mm"
+                    value={oneTimes[k.name] || ''} onChange={e=>setOneTimes({...oneTimes, [k.name]: e.target.value})}/>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3">
+              <button className="bg-slate-900 text-white rounded px-4 py-2" onClick={saveOne}>Speichern</button>
+            </div>
+          </section>
+
+          {/* Anwesenheitsprüfung */}
+          <section className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-lg font-semibold mb-3">Anwesenheitsprüfung</h2>
+            <div className="flex items-center gap-2 mb-3">
+              <label className="text-sm">Datum:</label>
+              <input type="date" className="border rounded px-3 py-2" value={checkDate} onChange={e=>setCheckDate(e.target.value)} />
+              <button className="bg-slate-900 text-white rounded px-3 py-2" onClick={computePresence}>Aktualisieren</button>
+            </div>
+            {present.length === 0 ? (
+              <div className="text-slate-600">Niemand ist als anwesend gelistet.</div>
+            ) : (
+              <ul className="list-disc list-inside">{present.map(n=><li key={n}>{n}</li>)}</ul>
+            )}
+          </section>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<AdminApp/>);
+  </script>
 </body>
 </html>
