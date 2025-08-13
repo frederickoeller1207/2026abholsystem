@@ -1,227 +1,175 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Abholzeiten - Ansicht</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
-            color: #1f2937;
-        }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
-    
-    <script type="text/babel" data-type="module">
-        // Import der Firebase- und Hilfsbibliotheken
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-        import { getAuth, signInWithCustomToken, onAuthStateChanged, signInAnonymously } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-        import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, getDocs, onSnapshot, query, where } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-        import { format, formatISO, parseISO, isBefore, isAfter, differenceInMinutes, startOfDay, getDay, addDays, subDays } from 'https://cdn.jsdelivr.net/npm/date-fns@2.28.0/esm/index.js';
-        import { de } from 'https://cdn.jsdelivr.net/npm/date-fns@2.28.0/esm/locale/de/index.js';
-        
-        const { useState, useEffect, createElement } = React;
-        const ReactDOM = ReactDOM.createRoot(document.getElementById('root'));
-        
-        // Globale Variablen
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : 'null');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        
-        if (!firebaseConfig) {
-            console.error("Firebase-Konfiguration nicht gefunden.");
-        }
-        
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        
-        // Helper-Funktion für die Datenpfade
-        const getDataPath = (collectionName, userId) => {
-            return `/artifacts/${appId}/users/${userId}/${collectionName}`;
-        };
-        
-        // Hilfsfunktion zur Formatierung des Wochentags auf Deutsch
-        const formatDay = (date) => {
-            const weekdays = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
-            return weekdays[getDay(date)];
-        };
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Abholzeiten – Übersicht</title>
+  <script src="https://cdn.tailwindcss.com"></script>
 
-        //----------------------------------------------------------------------------------------------------------------------
-        //
-        //  1. Ansichtsseite (PublicView)
-        //
-        //----------------------------------------------------------------------------------------------------------------------
-        const PublicView = () => {
-            const [userId, setUserId] = useState(null);
-            const [children, setChildren] = useState([]);
-            const [pickupTimes, setPickupTimes] = useState({});
-            const [oneTimePickupTimes, setOneTimePickupTimes] = useState({});
-            const [selectedDate, setSelectedDate] = useState(new Date());
-            const [isLoading, setIsLoading] = useState(true);
-            const [errorMessage, setErrorMessage] = useState('');
-        
-            useEffect(() => {
-                const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        setUserId(user.uid);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                });
-        
-                return () => unsubscribeAuth();
-            }, []);
-        
-            useEffect(() => {
-                if (!userId) return;
-        
-                const cleanupFunctions = [];
-                setIsLoading(true);
-        
-                const childrenPath = getDataPath('children', userId);
-                const pickupTimesPath = getDataPath('pickupTimes', userId);
-                const oneTimePickupTimesPath = getDataPath('oneTimePickupTimes', userId);
-        
-                const qChildren = query(collection(db, childrenPath));
-                const unsubscribeChildren = onSnapshot(qChildren, (snapshot) => {
-                    const childrenData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setChildren(childrenData);
-                    setIsLoading(false);
-                }, (error) => {
-                    console.error("Fehler beim Laden der Kinderdaten:", error);
-                    setErrorMessage("Fehler beim Laden der Kinderdaten.");
-                    setIsLoading(false);
-                });
-                cleanupFunctions.push(unsubscribeChildren);
-        
-                const qPickupTimes = query(collection(db, pickupTimesPath));
-                const unsubscribePickupTimes = onSnapshot(qPickupTimes, (snapshot) => {
-                    const timesData = {};
-                    snapshot.docs.forEach(doc => {
-                        timesData[doc.id] = doc.data().times;
-                    });
-                    setPickupTimes(timesData);
-                }, (error) => {
-                    console.error("Fehler beim Laden der regulären Abholzeiten:", error);
-                    setErrorMessage("Fehler beim Laden der regulären Abholzeiten.");
-                });
-                cleanupFunctions.push(unsubscribePickupTimes);
-        
-                const qOneTimePickupTimes = query(collection(db, oneTimePickupTimesPath));
-                const unsubscribeOneTimePickupTimes = onSnapshot(qOneTimePickupTimes, (snapshot) => {
-                    const oneTimeData = {};
-                    snapshot.docs.forEach(doc => {
-                        oneTimeData[doc.id] = doc.data().times;
-                    });
-                    setOneTimePickupTimes(oneTimeData);
-                }, (error) => {
-                    console.error("Fehler beim Laden der einmaligen Abholzeiten:", error);
-                    setErrorMessage("Fehler beim Laden der einmaligen Abholzeiten.");
-                });
-                cleanupFunctions.push(unsubscribeOneTimePickupTimes);
-        
-                return () => cleanupFunctions.forEach(fn => fn());
-            }, [userId]);
-        
-            // Funktion zum Abrufen der Abholzeiten für ein bestimmtes Datum
-            const getTimesForDate = (date) => {
-                const dateString = format(date, 'yyyy-MM-dd');
-                const dayOfWeek = formatDay(date);
-        
-                const oneTime = oneTimePickupTimes[dateString];
-                if (oneTime) {
-                    return oneTime;
-                }
-        
-                const regular = pickupTimes[dayOfWeek];
-                return regular || {};
-            };
-        
-            const currentDayTimes = getTimesForDate(selectedDate);
-            const sortedChildren = [...children].sort((a, b) => {
-                const timeA = currentDayTimes[a.name] || '23:59';
-                const timeB = currentDayTimes[b.name] || '23:59';
-                return timeA.localeCompare(timeB);
-            });
-        
-            const handleDateChange = (event) => {
-                setSelectedDate(new Date(event.target.value));
-            };
-            
-            // UI-Komponente für die Ansichtsseite
-            return (
-                <div className="container mx-auto p-4 md:p-8 bg-white shadow-lg rounded-xl mt-8 max-w-2xl">
-                    <h1 className="text-3xl font-bold mb-6 text-center text-indigo-800">Abholzeiten</h1>
-                    {errorMessage && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" role="alert">{errorMessage}</div>}
-                    
-                    <div className="mb-6 text-center">
-                        <input
-                            type="date"
-                            value={format(selectedDate, 'yyyy-MM-dd')}
-                            onChange={handleDateChange}
-                            className="p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition duration-200"
-                        />
-                    </div>
-        
-                    <h2 className="text-2xl font-semibold mb-4 text-center">
-                        {format(selectedDate, 'd. MMMM yyyy', { locale: de })}
-                    </h2>
-        
-                    {isLoading ? (
-                        <div className="text-center text-gray-500">Lade Daten...</div>
-                    ) : (
-                        <div className="space-y-4">
-                            {sortedChildren.length > 0 ? (
-                                sortedChildren.map(child => {
-                                    const pickupTime = currentDayTimes[child.name];
-                                    const isAbsent = child.status === 'abgemeldet' && startOfDay(parseISO(child.abgemeldetAm)).getTime() === startOfDay(selectedDate).getTime();
-        
-                                    return (
-                                        <div
-                                            key={child.id}
-                                            className={`p-4 rounded-lg shadow-sm transition-colors duration-200 ${isAbsent ? 'bg-red-100 text-red-700 line-through' : 'bg-gray-50'}`}
-                                        >
-                                            <div className="flex justify-between items-center">
-                                                <span className="font-medium text-lg">
-                                                    {child.name}
-                                                </span>
-                                                <span className="font-mono text-xl font-bold">
-                                                    {pickupTime || '--:--'}
-                                                </span>
-                                            </div>
-                                            {isAbsent && (
-                                                <p className="text-sm mt-1">
-                                                    Abgemeldet um: {format(parseISO(child.abgemeldetAm), 'HH:mm', { locale: de })}
-                                                </p>
-                                            )}
-                                        </div>
-                                    );
-                                })
-                            ) : (
-                                <div className="text-center text-gray-500">
-                                    Keine Kinder oder Abholzeiten gefunden.
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            );
-        };
-        
-        // Rendert die PublicView-Komponente in das Root-Element
-        const rootElement = document.getElementById('root');
-        if (rootElement) {
-            const root = ReactDOM.createRoot(rootElement);
-            root.render(createElement(PublicView));
+  <!-- React + Babel (für JSX ohne Build) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase (Compat, kein Auth nötig) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <!-- Optional: date-fns nur falls du später brauchst -->
+  <link rel="icon" href="data:,">
+  <style>html,body,#root{height:100%}</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div id="root" class="h-full"></div>
+
+  <script type="text/babel">
+    const { useEffect, useMemo, useState } = React;
+    const WEEKDAYS = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+
+    // --- Firebase Init ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyAYf7wZxI7szM2jdpelENIvVrDHE25M0Jc",
+      authDomain: "neuabholung.firebaseapp.com",
+      databaseURL: "https://neuabholung-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "neuabholung",
+      storageBucket: "neuabholung.firebasestorage.app",
+      messagingSenderId: "982992894873",
+      appId: "1:982992894873:web:750e72ee79f585c1717108"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // --- Helpers ---
+    const qs = new URLSearchParams(location.search);
+    const userId = qs.get('u') || 'public';
+
+    function todayKey(){
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+
+    async function resetIfNewDay(u){
+      if(!u) return;
+      const metaRef = db.doc(`users/${u}/meta/dailyReset`);
+      const snap = await metaRef.get();
+      const last = snap.exists ? snap.data().lastReset : null;
+      const today = todayKey();
+      if (last === today) return;
+
+      const kidsSnap = await db.collection(`users/${u}/children`).get();
+      const batch = db.batch();
+      kidsSnap.forEach(docSnap => {
+        batch.update(docSnap.ref, { status:'anwesend', abgemeldetAm: null });
+      });
+      batch.set(metaRef, { lastReset: today }, { merge: true });
+      await batch.commit();
+    }
+
+    function groupByTime(sortedEntries){
+      const out = {};
+      for(const [name,time] of sortedEntries){
+        const key = time || "—";
+        (out[key] ||= []).push(name);
+      }
+      return out;
+    }
+
+    function App(){
+      const [dateStr, setDateStr] = useState(() => new Date().toISOString().slice(0,10));
+      const [children, setChildren] = useState([]);
+      const [weeklyTimes, setWeeklyTimes] = useState({});
+      const [oneTimes, setOneTimes] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState("");
+
+      async function loadAll(sel){
+        setLoading(true); setError("");
+        try{
+          await resetIfNewDay(userId);
+
+          const kids = await db.collection(`users/${userId}/children`).get();
+          setChildren(kids.docs.map(d => ({ id:d.id, ...d.data() })));
+
+          const d = new Date(sel);
+          const weekday = WEEKDAYS[d.getDay()];
+          const weekDoc = await db.doc(`users/${userId}/pickupTimes/${weekday}`).get();
+          setWeeklyTimes(weekDoc.exists ? (weekDoc.data().times || {}) : {});
+
+          const oneDoc = await db.doc(`users/${userId}/oneTimePickupTimes/${sel}`).get();
+          setOneTimes(oneDoc.exists ? (oneDoc.data().times || {}) : null);
+        }catch(e){
+          console.error(e);
+          setError(e.message || String(e));
+        }finally{
+          setLoading(false);
         }
-    </script>
+      }
+
+      useEffect(()=>{ loadAll(dateStr); },[dateStr]);
+
+      const effectiveTimes = useMemo(()=> oneTimes || weeklyTimes || {}, [oneTimes, weeklyTimes]);
+
+      const entries = useMemo(()=>{
+        const arr = children.map(k => [k.name, effectiveTimes[k.name] || null]);
+        arr.sort((a,b)=>{
+          if(!a[1] && !b[1]) return a[0].localeCompare(b[0], 'de');
+          if(!a[1]) return 1; if(!b[1]) return -1;
+          return a[1].localeCompare(b[1]);
+        });
+        return arr;
+      },[children, effectiveTimes]);
+
+      const grouped = useMemo(()=> groupByTime(entries), [entries]);
+
+      return (
+        <div className="max-w-3xl mx-auto p-4 space-y-4">
+          <header className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold">Abholzeiten</h1>
+            <input type="date" value={dateStr} onChange={e=>setDateStr(e.target.value)} className="border rounded px-3 py-2"/>
+          </header>
+
+          {loading && <p className="text-sm text-slate-500">Lade…</p>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          {!loading && Object.keys(grouped).length === 0 && (
+            <p className="text-slate-600">Keine Daten für diesen Tag.</p>
+          )}
+
+          {!loading && Object.entries(grouped).map(([time, names])=>(
+            <section key={time} className="bg-white rounded-xl shadow p-4 mb-3">
+              <div className="text-center font-semibold text-lg">{time === "—" ? "Keine Zeit" : time}</div>
+              <div className="mt-3 grid grid-cols-1 gap-1">
+                {names.map(n=>{
+                  const kid = children.find(k=>k.name===n);
+                  const isAb = kid?.status === 'abgemeldet';
+                  let when = '';
+                  if (kid?.abgemeldetAm){
+                    const d = new Date(kid.abgemeldetAm);
+                    const hh = String(d.getHours()).padStart(2,'0');
+                    const mm = String(d.getMinutes()).padStart(2,'0');
+                    when = ` – ${hh}:${mm}`;
+                  }
+                  return (
+                    <div key={n} className={"text-base " + (isAb ? "text-red-600 line-through" : "")}>
+                      {n}{isAb ? when : ""}
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
+
+          <footer className="text-center text-xs text-slate-400 pt-6">
+            Nutzer-ID „{userId}“ · Einmalige Zeiten überschreiben reguläre Zeiten · Täglicher Auto-Reset aktiv.
+          </footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
 </body>
 </html>
