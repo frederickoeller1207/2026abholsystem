@@ -6,12 +6,10 @@
   <title>Abmeldung</title>
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- React + Babel -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase (Compat) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
@@ -71,27 +69,25 @@
 
     function App(){
       const [msg,setMsg] = useState('Bitte warten…');
-
       useEffect(()=>{
         (async ()=>{
           if(!userId || !name || !cid){ setMsg('Ungültiger Link.'); return; }
           try{
-            // Erst täglicher Reset, dann Abmeldelogik
             await resetIfNewDay(userId);
 
             const now = new Date();
             const todayIso = now.toISOString().slice(0,10);
             const weekday = WEEKDAYS[now.getDay()];
 
-            // Einmalige Zeit?
+            // Abholzeit laden
             let timeStr = null;
             const oneDoc = await db.doc(`users/${userId}/oneTimePickupTimes/${todayIso}`).get();
             if(oneDoc.exists){
               const t = oneDoc.data().times || {};
               timeStr = t[name] || null;
             }
-            // Regulär, falls keine einmalige
-            if(!timeStr){
+
+            if(!timeStr && weekday !== "Sonntag"){
               const weekDoc = await db.doc(`users/${userId}/pickupTimes/${weekday}`).get();
               if(weekDoc.exists){
                 const t = weekDoc.data().times || {};
@@ -101,15 +97,15 @@
 
             if(!timeStr){ setMsg(`Keine Abholzeit für ${name} hinterlegt.`); return; }
 
-            // Zeit heute HH:mm
             const [hh,mm] = timeStr.split(':').map(v=>parseInt(v,10));
             const sched = new Date(); sched.setHours(hh, mm, 0, 0);
 
-            const diffMs = sched.getTime() - now.getTime();
-            const twoMinMs = 2*60*1000;
+            const diffMs = now.getTime() - sched.getTime();
+            const fiveMinMs = 5*60*1000;
 
-            if (diffMs > twoMinMs){
-              const mins = Math.ceil((diffMs - twoMinMs)/60000);
+            // Logik: Abmeldung ist 5 Minuten vor der Zeit möglich
+            if (diffMs < -fiveMinMs){
+              const mins = Math.ceil((diffMs + fiveMinMs)/-60000);
               setMsg(`${name}, bitte warte noch ${mins} Minute(n), um dich abzumelden.`);
               return;
             }
@@ -118,7 +114,6 @@
               status:'abgemeldet',
               abgemeldetAm: new Date().toISOString()
             });
-
             setMsg(`${name} erfolgreich abgemeldet.`);
           }catch(e){
             console.error(e);
@@ -126,7 +121,7 @@
           }
         })();
       },[]);
-
+      
       return (
         <div className="h-full grid place-items-center">
           <div className="bg-white rounded-xl shadow p-6 text-center max-w-md">
