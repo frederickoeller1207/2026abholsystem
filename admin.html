@@ -6,12 +6,10 @@
   <title>Abholzeiten – Admin</title>
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- React + Babel -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase (Compat) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
@@ -68,13 +66,11 @@
     function AdminApp(){
       const [children,setChildren] = useState([]);
       const [kidName,setKidName] = useState("");
-
       const [weekday,setWeekday] = useState("Montag");
       const [weeklyTimes,setWeeklyTimes] = useState({});
 
       const [dateStr,setDateStr] = useState(()=> new Date().toISOString().slice(0,10));
       const [oneTimes,setOneTimes] = useState({});
-
       const [checkDate,setCheckDate] = useState(()=> new Date().toISOString().slice(0,10));
       const [present,setPresent] = useState([]);
 
@@ -103,7 +99,6 @@
           await loadOne(dateStr);
         })();
       },[]);
-
       useEffect(()=>{ loadWeekly(weekday); },[weekday]);
       useEffect(()=>{ loadOne(dateStr); },[dateStr]);
 
@@ -140,16 +135,13 @@
         return `${baseUrl}child.html?${p.toString()}`;
       }
 
+      // Korrigierte Funktion
       async function computePresence(){
         const list = [];
         for(const k of children){
-          let isAb = false;
-          if (k.abgemeldetAm){
-            const d = new Date(k.abgemeldetAm);
-            const iso = d.toISOString().slice(0,10);
-            if (iso === checkDate) isAb = true;
+          if (k.status === 'anwesend') {
+            list.push(k.name);
           }
-          if (!isAb) list.push(k.name);
         }
         setPresent(list);
       }
@@ -170,7 +162,7 @@
             <h2 className="text-lg font-semibold mb-3">Kinderverwaltung</h2>
             <div className="flex gap-2 mb-4">
               <input className="border rounded px-3 py-2 flex-1" placeholder="Name des Kindes"
-                value={kidName} onChange={e=>setKidName(e.target.value)} />
+                     value={kidName} onChange={e=>setKidName(e.target.value)} />
               <button className="bg-emerald-600 text-white rounded px-4" onClick={addChild}>Hinzufügen</button>
             </div>
             <div className="grid md:grid-cols-2 gap-3">
@@ -206,7 +198,7 @@
                 <div key={k.id} className="flex items-center gap-2">
                   <div className="w-48">{k.name}</div>
                   <input className="border rounded px-3 py-2" placeholder="HH:mm"
-                    value={weeklyTimes[k.name] || ''} onChange={e=>setWeeklyTimes({...weeklyTimes, [k.name]: e.target.value})}/>
+                         value={weeklyTimes[k.name] || ''} onChange={e=>setWeeklyTimes({...weeklyTimes, [k.name]: e.target.value})}/>
                 </div>
               ))}
             </div>
@@ -227,7 +219,7 @@
                 <div key={k.id} className="flex items-center gap-2">
                   <div className="w-48">{k.name}</div>
                   <input className="border rounded px-3 py-2" placeholder="HH:mm"
-                    value={oneTimes[k.name] || ''} onChange={e=>setOneTimes({...oneTimes, [k.name]: e.target.value})}/>
+                         value={oneTimes[k.name] || ''} onChange={e=>setOneTimes({...oneTimes, [k.name]: e.target.value})}/>
                 </div>
               ))}
             </div>
