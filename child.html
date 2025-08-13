@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abmeldung</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+      body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 flex items-center justify-center min-h-screen">
+    <div id="root" class="container mx-auto">
+        <!-- Die React-App wird hier gerendert -->
+    </div>
+
+    <script type="module">
+        import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
+        import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { format, isAfter } from 'https://esm.sh/date-fns@2.30.0';
+        import { de } from 'https://esm.sh/date-fns@2.30.0/locale/de';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAYf7wZxI7szM2jdpelENIvVrDHE25M0Jc",
+            authDomain: "neuabholung.firebaseapp.com",
+            databaseURL: "https://neuabholung-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "neuabholung",
+            storageBucket: "neuabholung.firebasestorage.app",
+            messagingSenderId: "982992894873",
+            appId: "1:982992894873:web:750e72ee79f585c1717108"
+        };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        const cardClass = "bg-white p-6 rounded-xl shadow-md my-4 text-center";
+        const buttonClass = "bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-full transition-colors duration-200";
+
+        const App = () => {
+            const [childName, setChildName] = useState('');
+            const [childId, setChildId] = useState('');
+            const [abmeldungStatus, setAbmeldungStatus] = useState('Lade...');
+            const [loading, setLoading] = useState(true);
+            const [authReady, setAuthReady] = useState(false);
+            const [userId, setUserId] = useState('');
+            const [pickupTimes, setPickupTimes] = useState({});
+
+            useEffect(() => {
+              const urlParams = new URLSearchParams(window.location.search);
+              setChildName(urlParams.get('name'));
+              setChildId(urlParams.get('id'));
+
+              const initAuth = async () => {
+                  try {
+                      if (initialAuthToken) {
+                          await signInWithCustomToken(auth, initialAuthToken);
+                      } else {
+                          await signInAnonymously(auth);
+                      }
+                  } catch (error) {
+                      console.error("Fehler bei der Anmeldung:", error);
+                  }
+              };
+              initAuth();
+
+              const unsubscribe = onAuthStateChanged(auth, (user) => {
+                  if (user) {
+                      setUserId(user.uid);
+                      setAuthReady(true);
+                  } else {
+                      setAuthReady(true);
+                  }
+              });
+              return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!authReady || !userId) return;
+
+                const pickupTimesPath = `/artifacts/${appId}/users/${userId}/pickupTimes`;
+                getDoc(doc(db, pickupTimesPath, format(new Date(), 'EEEE', { locale: de })))
+                    .then(docSnap => {
+                        if (docSnap.exists()) {
+                            setPickupTimes(docSnap.data().times);
+                        }
+                    })
+                    .catch(error => console.error("Fehler beim Laden der Abholzeiten:", error))
+                    .finally(() => setLoading(false));
+            }, [authReady, userId]);
+
+            const handleAbmelden = async () => {
+                const now = new Date();
+                const weekday = format(now, 'EEEE', { locale: de });
+                const abholzeitStr = pickupTimes[childName];
+                const childDocRef = doc(db, `/artifacts/${appId}/users/${userId}/children`, childId);
+
+                if (!abholzeitStr) {
+                    setAbmeldungStatus(`Keine Abholzeit für ${childName} hinterlegt.`);
+                    return;
+                }
+
+                const [std, min] = abholzeitStr.split(':').map(Number);
+                const abholZeit = new Date(now);
+                abholZeit.setHours(std, min, 0);
+
+                const abmeldezeitpunkt = new Date(abholZeit);
+                abmeldezeitpunkt.setMinutes(abmeldezeitpunkt.getMinutes() - 2);
+
+                if (isAfter(now, abmeldezeitpunkt)) {
+                    await updateDoc(childDocRef, { status: 'abgemeldet', abgemeldetAm: new Date().toISOString() });
+                    setAbmeldungStatus(`${childName} erfolgreich abgemeldet.`);
+                } else {
+                    const diffMin = Math.ceil((abmeldezeitpunkt - now) / 60000);
+                    setAbmeldungStatus(`${childName}, bitte warte noch ${diffMin} Minute(n), um dich abzumelden.`);
+                }
+            };
+            
+            // Abmeldevorgang direkt beim Laden der Seite starten
+            useEffect(() => {
+                if(authReady && childName && childId) {
+                    handleAbmelden();
+                }
+            }, [authReady, childName, childId]);
+
+            return (
+                <div className={cardClass}>
+                    <h1 className="text-2xl font-bold mb-4">Hallo {childName}!</h1>
+                    <p className="text-lg text-gray-700">{abmeldungStatus}</p>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
