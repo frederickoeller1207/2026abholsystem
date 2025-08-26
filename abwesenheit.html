@@ -3,45 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Anwesenheit – Übersicht</title>
+<title>Abwesenheit – Monat</title>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 <style>
-  :root{--fg:#1a202c;--muted:#64748b;--accent:#4299e1;--bg:#f0f4f8;--white:#fff}
-  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:var(--bg);color:var(--fg)}
-  .wrap{max-width:1000px;margin:0 auto;padding:16px}
-  h1{margin:8px 0;text-align:center;font-size:22px}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0}
-  .controls > *{padding:8px 10px;border-radius:10px;border:1px solid #cbd5e0;background:#fff}
-  .btn{background:#4299e1;color:#fff;border:0;cursor:pointer}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
-  .card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
-  .card h3{margin:0 0 8px 0;font-size:16px}
-  .small{font-size:13px;color:var(--muted)}
-  ul{list-style:none;margin:8px 0 0 0;padding:0}
-  li{padding:4px 0;border-bottom:1px dashed #eee}
-  .stats{display:flex;gap:10px;flex-wrap:wrap}
-  .pill{padding:2px 8px;border-radius:999px;background:#eef;border:1px solid #dde;font-variant-numeric:tabular-nums}
-  .warn{background:#fde68a;border-color:#f6c453}
-  .ok{background:#dcfce7;border-color:#86efac}
+  :root{--bg:#0f172a;--card:#111827;--grid:#0b1220;--fg:#e5e7eb;--muted:#94a3b8;--accent:#4299e1;--weekend:#1f2937}
+  body{margin:0;background:#000;color:var(--fg);font-family:system-ui,Segoe UI,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  header{display:flex;justify-content:space-between;align-items:center;margin:8px 0 16px}
+  h1{margin:0;font-size:20px}
+  .nav{display:flex;gap:8px}
+  button{background:var(--accent);border:0;color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+  .month{font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .dow{color:var(--muted);text-align:center;font-size:12px;padding:6px 0}
+  .cell{background:var(--card);border-radius:12px;min-height:110px;padding:8px;display:flex;flex-direction:column}
+  .cell .day{font-size:12px;color:var(--muted)}
+  .names{margin-top:6px;font-size:12px;line-height:1.25;white-space:pre-wrap}
+  .muted{color:var(--muted)}
+  .weekend{background:var(--weekend)}
+  .disabled{opacity:.35}
+  .legend{margin:10px 0;color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Anwesenheit</h1>
+  <header>
+    <h1>Abwesenheit</h1>
+    <div class="nav">
+      <button id="prevBtn">« Monat zurück</button>
+      <div id="monthTitle" class="month"></div>
+      <button id="nextBtn">Monat vor »</button>
+    </div>
+  </header>
 
-  <div class="controls">
-    <label><input type="radio" name="mode" value="week" checked> Woche</label>
-    <label><input type="radio" name="mode" value="month"> Monat</label>
-
-    <input type="date" id="weekDate">
-    <input type="month" id="monthInput" style="display:none">
-    <button id="runBtn" class="btn">Auswerten</button>
-  </div>
-
-  <div id="info" class="small" style="text-align:center">Lade…</div>
-  <div id="summary" class="small" style="text-align:center;margin-top:6px"></div>
-  <div id="results" class="grid"></div>
+  <div class="legend">Namen = <span class="muted">Kinder, die an diesem Werktag nicht abgemeldet wurden</span></div>
+  <div id="gridHeader" class="grid"></div>
+  <div id="grid" class="grid"></div>
 </div>
 
 <script>
@@ -53,187 +51,112 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
-  // Helpers (Europe/Berlin)
-  function berlinDate(d=new Date()){
-    return new Date(new Date(d).toLocaleString('de-DE',{timeZone:'Europe/Berlin'}));
-  }
-  function formatDateISO(d){
-    const x=berlinDate(d);
-    const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,'0'), da=String(x.getDate()).padStart(2,'0');
-    return `${y}-${m}-${da}`;
-  }
-  const WEEK = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
-  const SCHOOL = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
+  // Konstanten
+  const DAYS=["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+  const SCHOOL=new Set(["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]);
+  const MIN_DATE="2025-08-27"; // ab diesem Datum zählen
 
-  function mondayOfWeek(d){
-    const x=berlinDate(d);
-    const day=(x.getDay()+6)%7; // Mo=0
-    const monday=new Date(x); monday.setDate(x.getDate()-day);
-    return berlinDate(monday);
+  // Zeit-Helfer Europe/Berlin
+  const tzOpts={timeZone:'Europe/Berlin'};
+  const fmtMonth=new Intl.DateTimeFormat('de-DE',{...tzOpts,month:'long',year:'numeric'});
+  function dTZ(d){ return new Date(new Date(d).toLocaleString('de-DE',tzOpts)); }
+  function isoDate(d){ const x=dTZ(d); const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,'0'), da=String(x.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
+  function firstOfMonth(y,m){ return dTZ(new Date(y,m,1)); }
+  function addDays(d,n){ const x=dTZ(d); x.setDate(x.getDate()+n); return x; }
+  function dowIndexMonFirst(d){ // 0=Mo..6=So
+    const js=dTZ(d).getDay(); // 0=So..6=Sa
+    return (js+6)%7;
   }
-  function addDays(d,n){ const x=berlinDate(d); x.setDate(x.getDate()+n); return x; }
 
-  // UI
-  const infoEl = document.getElementById('info');
-  const resEl  = document.getElementById('results');
-  const sumEl  = document.getElementById('summary');
-  const weekDate = document.getElementById('weekDate');
-  const monthInput = document.getElementById('monthInput');
+  // DOM
+  const monthTitle=document.getElementById('monthTitle');
+  const grid=document.getElementById('grid');
+  const gridHeader=document.getElementById('gridHeader');
+  document.getElementById('prevBtn').onclick=()=>{ shiftMonth(-1); };
+  document.getElementById('nextBtn').onclick=()=>{ shiftMonth(1); };
 
-  // Mode toggle
-  document.querySelectorAll('input[name="mode"]').forEach(r=>{
-    r.addEventListener('change', ()=>{
-      if (r.value==='week' && r.checked){ weekDate.style.display=''; monthInput.style.display='none'; }
-      if (r.value==='month' && r.checked){ weekDate.style.display='none'; monthInput.style.display=''; }
+  // Kopfzeile Wochentage
+  function renderDowHeader(){
+    gridHeader.innerHTML='';
+    ["Mo","Di","Mi","Do","Fr","Sa","So"].forEach(s=>{
+      const el=document.createElement('div'); el.className='dow'; el.textContent=s; gridHeader.appendChild(el);
     });
-  });
+  }
+  renderDowHeader();
 
-  document.getElementById('runBtn').addEventListener('click', run);
-
-  // Preload defaults
-  (function initDefaults(){
-    // Default Woche: heute
-    const todayISO = formatDateISO(new Date());
-    weekDate.value = todayISO;
-    // Default Monat: aktueller Monat
-    const x = berlinDate(new Date());
-    monthInput.value = `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`;
-    infoEl.textContent = "Bereit.";
-  })();
-
-  // Roster cache (Basiszeiten, leere Zeiten werden ignoriert)
-  let ROSTER = {}; // { Montag: Set(names), ... }
+  // Roster cache: {Montag:Set(...), ...} – leere Zeiten ignorieren
+  let ROSTER={};
   async function loadRoster(){
-    const out = {};
-    await Promise.all(SCHOOL.map(async day=>{
-      const snap = await db.ref(day).once('value');
-      const v = snap.val()||{};
-      out[day] = new Set(Object.entries(v).filter(([_,time])=>String(time).trim()!=="").map(([name])=>name));
-    }));
-    ROSTER = out;
-  }
-
-  async function run(){
-    infoEl.textContent = "Lade Basislisten…";
-    resEl.innerHTML = ""; sumEl.textContent = "";
-
-    if (!Object.keys(ROSTER).length) await loadRoster();
-
-    const mode = document.querySelector('input[name="mode"]:checked').value;
-    if (mode==='week'){
-      const base = weekDate.value ? new Date(weekDate.value) : new Date();
-      await renderWeek(base);
-    } else {
-      const ym = monthInput.value; // "YYYY-MM"
-      if (!ym){ infoEl.textContent="Bitte Monat wählen."; return; }
-      const [y,m] = ym.split('-').map(Number);
-      await renderMonth(y, m); // m = 1..12
+    const out={};
+    for(const day of ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]){
+      const snap=await db.ref(day).once('value');
+      const v=snap.val()||{};
+      out[day]=new Set(Object.entries(v).filter(([_,t])=>String(t).trim()!=="").map(([n])=>n));
     }
+    ROSTER=out;
   }
 
-  async function renderWeek(anyDate){
-    infoEl.textContent = "Woche wird ausgewertet…";
-    const monday = mondayOfWeek(anyDate);
-    const days = [0,1,2,3,4].map(i=>addDays(monday,i));
-    const cards = [];
-    let totalExpected=0, totalPresent=0;
+  // Monat rendern
+  let cur=new Date(); // heute
+  async function renderMonth(){
+    if(!Object.keys(ROSTER).length) await loadRoster();
 
-    for (const d of days){
-      const dayName = WEEK[d.getDay()];
-      if (!SCHOOL.includes(dayName)) continue;
+    const start=firstOfMonth(cur.getFullYear(),cur.getMonth());
+    const title=fmtMonth.format(start); monthTitle.textContent=title.charAt(0).toUpperCase()+title.slice(1);
 
+    // Startzelle: auf Montag einrücken
+    grid.innerHTML='';
+    const lead= dowIndexMonFirst(start); // 0..6
+    const daysInMonth = new Date(start.getFullYear(), start.getMonth()+1, 0).getDate();
+
+    // Leere Zellen vor dem 1.
+    for(let i=0;i<lead;i++){
+      const c=document.createElement('div'); c.className='cell disabled'; grid.appendChild(c);
+    }
+
+    // Für jeden Tag des Monats
+    for(let d=1; d<=daysInMonth; d++){
+      const dateObj = dTZ(new Date(start.getFullYear(), start.getMonth(), d));
+      const key = isoDate(dateObj);
+      const idx = dowIndexMonFirst(dateObj); // 0=Mo..6=So
+      const dayName = DAYS[idx];
+
+      const cell=document.createElement('div');
+      cell.className='cell'+(idx>=5?' weekend':'');
+      const dayLabel=document.createElement('div'); dayLabel.className='day'; dayLabel.textContent=String(d);
+      const namesDiv=document.createElement('div'); namesDiv.className='names';
+      cell.appendChild(dayLabel); cell.appendChild(namesDiv);
+      grid.appendChild(cell);
+
+      // Nur Werktage und ab MIN_DATE auswerten
+      if (!SCHOOL.has(dayName) || key < MIN_DATE){ namesDiv.textContent=''; continue; }
+
+      // Erwartete Kinder aus ROSTER
       const roster = Array.from(ROSTER[dayName]||[]);
-      const expected = roster.length;
+      if (!roster.length){ namesDiv.textContent=''; continue; }
 
-      const key = formatDateISO(d);
-      const checkSnap = await db.ref(`abmeldungen/${key}`).once('value');
-      const checked = new Set(Object.keys(checkSnap.val()||{}));
-
-      const present = roster.filter(n=>checked.has(n));
-      const absent  = roster.filter(n=>!checked.has(n));
-
-      totalExpected += expected;
-      totalPresent  += present.length;
-
-      cards.push({
-        title: `${dayName}, ${key}`,
-        expected, present: present.length, absent: absent.length,
-        absentList: absent
-      });
+      // Abmeldungen laden und fehlende Namen listen
+      try{
+        const snap = await db.ref(`abmeldungen/${key}`).once('value');
+        const checked = new Set(Object.keys(snap.val()||{}));
+        const absent = roster.filter(n=>!checked.has(n));
+        namesDiv.textContent = absent.join('\n');
+      }catch{ namesDiv.textContent=''; }
     }
 
-    resEl.innerHTML = "";
-    for (const c of cards){
-      const div = document.createElement('div');
-      div.className = 'card';
-      const okClass = c.absent===0 ? 'ok' : 'warn';
-      div.innerHTML = `
-        <h3>${c.title}</h3>
-        <div class="stats">
-          <span class="pill">Erwartet: ${c.expected}</span>
-          <span class="pill ok">Abgemeldet: ${c.present}</span>
-          <span class="pill ${okClass}">Nicht abgemeldet: ${c.absent}</span>
-        </div>
-        <div class="small" style="margin-top:6px">Nicht abgemeldet:</div>
-        <ul>${c.absentList.map(n=>`<li>${n}</li>`).join('') || '<li>—</li>'}</ul>
-      `;
-      resEl.appendChild(div);
-    }
-
-    sumEl.textContent = `Summe Woche – erwartet: ${totalExpected}, abgemeldet: ${totalPresent}, nicht abgemeldet: ${totalExpected-totalPresent}`;
-    infoEl.textContent = "Fertig.";
+    // Tail-Zellen bis volle Zeile
+    const totalCells = lead + daysInMonth;
+    const tail = (7 - (totalCells % 7)) % 7;
+    for(let i=0;i<tail;i++){ const c=document.createElement('div'); c.className='cell disabled'; grid.appendChild(c); }
   }
 
-  async function renderMonth(year, month1to12){
-    infoEl.textContent = "Monat wird ausgewertet…";
-    const first = berlinDate(new Date(year, month1to12-1, 1));
-    const next  = berlinDate(new Date(year, month1to12, 1));
-    const days = [];
-    for (let d=new Date(first); d<next; d.setDate(d.getDate()+1)){
-      const dn = WEEK[d.getDay()];
-      if (SCHOOL.includes(dn)) days.push(new Date(d));
-    }
-
-    let totalExpected=0, totalPresent=0;
-    resEl.innerHTML = "";
-
-    for (const d of days){
-      const dayName = WEEK[d.getDay()];
-      const roster = Array.from(ROSTER[dayName]||[]);
-      const expected = roster.length;
-
-      const key = formatDateISO(d);
-      const checkSnap = await db.ref(`abmeldungen/${key}`).once('value');
-      const checked = new Set(Object.keys(checkSnap.val()||{}));
-
-      const present = roster.filter(n=>checked.has(n));
-      const absent  = roster.filter(n=>!checked.has(n));
-
-      const div = document.createElement('div');
-      div.className = 'card';
-      const okClass = absent.length===0 ? 'ok' : 'warn';
-      div.innerHTML = `
-        <h3>${dayName}, ${key}</h3>
-        <div class="stats">
-          <span class="pill">Erwartet: ${expected}</span>
-          <span class="pill ok">Abgemeldet: ${present.length}</span>
-          <span class="pill ${okClass}">Nicht abgemeldet: ${absent.length}</span>
-        </div>
-        <div class="small" style="margin-top:6px">Nicht abgemeldet:</div>
-        <ul>${absent.map(n=>`<li>${n}</li>`).join('') || '<li>—</li>'}</ul>
-      `;
-      resEl.appendChild(div);
-
-      totalExpected += expected;
-      totalPresent  += present.length;
-    }
-
-    sumEl.textContent = `Summe Monat – erwartet: ${totalExpected}, abgemeldet: ${totalPresent}, nicht abgemeldet: ${totalExpected-totalPresent}`;
-    infoEl.textContent = "Fertig.";
+  function shiftMonth(delta){
+    const y=cur.getFullYear(), m=cur.getMonth();
+    cur = new Date(y, m+delta, 1);
+    renderMonth();
   }
 
-  // Autostart
-  document.addEventListener('DOMContentLoaded', run);
+  document.addEventListener('DOMContentLoaded', renderMonth);
 </script>
 </body>
 </html>
