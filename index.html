@@ -116,6 +116,9 @@
     // Initiales Laden der Daten
     async function loadData() {
         statusMessage.textContent = 'Lade Daten...';
+        console.log('Starte Ladevorgang...');
+        showView('children-view');
+        
         try {
             const snapshot = await database.ref().once('value');
             const data = snapshot.val() || {};
@@ -127,9 +130,13 @@
             renderAdminForms();
             renderDayView(weekdays[currentDayIndex]);
             statusMessage.textContent = 'Daten geladen.';
+            console.log('Ladevorgang erfolgreich abgeschlossen.');
         } catch (error) {
-            statusMessage.textContent = `Fehler beim Laden: ${error.message}.`;
-            console.error(error);
+            statusMessage.textContent = `Verbindungsfehler: ${error.message}. Bitte überprüfen Sie Ihre API-Schlüssel und die Datenbank-URL in der Firebase-Konsole.`;
+            console.error('Ladefehler:', error);
+            // Bei einem Verbindungsfehler die Ansicht nicht umschalten
+            showView('children-view');
+            childrenList.innerHTML = '<li>Fehler beim Laden der Kinderliste.</li>';
         }
     }
 
