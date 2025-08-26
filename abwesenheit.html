@@ -11,17 +11,18 @@
   body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Arial,sans-serif}
   .wrap{max-width:1100px;margin:0 auto;padding:16px}
   header{display:flex;justify-content:space-between;align-items:center;margin:8px 0 16px}
-  h1{margin:0;font-size:20px}
+  h1{margin:0;font-size:22px}
   .nav{display:flex;gap:8px;align-items:center}
-  button{background:var(--accent);border:0;color:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
-  .month{min-width:180px;text-align:center;font-weight:700}
+  button{background:var(--accent);border:0;color:#fff;border-radius:12px;padding:10px 14px;cursor:pointer}
+  .month{min-width:200px;text-align:center;font-weight:700}
   .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
   .dow{color:var(--muted);text-align:center;font-size:12px;padding:6px 0}
-  .cell{background:var(--card);border-radius:12px;min-height:110px;padding:8px;display:flex;flex-direction:column}
-  .cell .day{font-size:12px;color:var(--muted)}
+  .cell{background:var(--card);border-radius:14px;min-height:110px;padding:8px;display:flex;flex-direction:column}
+  .day{font-size:12px;color:var(--muted)}
+  .day.muted{opacity:.6}
   .names{margin-top:6px;font-size:12px;line-height:1.25;white-space:pre-wrap}
-  .disabled{opacity:.35}
   .legend{margin:10px 0;color:var(--muted);font-size:12px}
+  #status{margin-top:8px;color:var(--muted);font-size:12px;text-align:center}
 </style>
 </head>
 <body>
@@ -41,6 +42,7 @@
 
   <div id="gridHeader" class="grid"></div>
   <div id="grid" class="grid"></div>
+  <div id="status"></div>
 </div>
 
 <script>
@@ -53,102 +55,125 @@
   const db = firebase.database();
 
   // Konstanten
-  const DAYS=["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
-  const SCHOOL=new Set(["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]);
-  const MIN_DATE="2025-08-27"; // ab diesem Datum zählen
+  const SCHOOL = new Set(["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]);
+  const MIN_DATE = "2025-08-27"; // ab diesem Datum zählen
 
   // TZ-Helper Europe/Berlin
-  const tzOpts={timeZone:'Europe/Berlin'};
-  const fmtMonth=new Intl.DateTimeFormat('de-DE',{...tzOpts,month:'long',year:'numeric'});
-  function dTZ(d){ return new Date(new Date(d).toLocaleString('de-DE',tzOpts)); }
-  function isoDate(d){ const x=dTZ(d); const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,'0'), da=String(x.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
-  function dowIndexMonFirst(d){ const js=dTZ(d).getDay(); return (js+6)%7; } // 0=Mo..6=So
+  const tz = { timeZone:"Europe/Berlin" };
+  function dTZ(d){ return new Date(new Date(d).toLocaleString("de-DE", tz)); }
+  function isoDate(d){ const x=dTZ(d); const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,"0"), da=String(x.getDate()).padStart(2,"0"); return `${y}-${m}-${da}`; }
+  function monthLabel(d){ return dTZ(d).toLocaleDateString("de-DE", { ...tz, month:"long", year:"numeric" }); }
+  function dowMonFirst(d){ const js=dTZ(d).getDay(); return (js+6)%7; } // 0=Mo … 6=So
+  function addDays(d,n){ const x=dTZ(d); x.setDate(x.getDate()+n); return x; }
+  const DOW_SHORT = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+  const DOW_NAME  = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
 
   // DOM
-  const monthTitle=document.getElementById('monthTitle');
-  const grid=document.getElementById('grid');
-  const gridHeader=document.getElementById('gridHeader');
-  document.getElementById('prevBtn').onclick=()=>shiftMonth(-1);
-  document.getElementById('nextBtn').onclick=()=>shiftMonth(1);
+  const monthTitle = document.getElementById("monthTitle");
+  const gridHeader = document.getElementById("gridHeader");
+  const grid       = document.getElementById("grid");
+  const statusEl   = document.getElementById("status");
+  document.getElementById("prevBtn").onclick = ()=>shiftMonth(-1);
+  document.getElementById("nextBtn").onclick = ()=>shiftMonth(1);
 
-  // Kopfzeile
+  // Kopfzeile (Mo–So)
   (function renderDowHeader(){
-    gridHeader.innerHTML='';
-    ["Mo","Di","Mi","Do","Fr","Sa","So"].forEach(s=>{
-      const el=document.createElement('div'); el.className='dow'; el.textContent=s; gridHeader.appendChild(el);
+    gridHeader.innerHTML = "";
+    DOW_SHORT.forEach(s=>{
+      const el=document.createElement("div");
+      el.className="dow";
+      el.textContent=s;
+      gridHeader.appendChild(el);
     });
   })();
 
   // Roster-Cache (Basisplan; leere Zeiten ignorieren)
-  let ROSTER={};
+  let ROSTER = {}; // { Montag:Set(names), ... }
   async function loadRoster(){
-    const out={};
-    for(const day of ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]){
-      const v=(await db.ref(day).once('value')).val()||{};
-      out[day]=new Set(Object.entries(v).filter(([_,t])=>String(t).trim()!=="").map(([n])=>n));
+    const out = {};
+    for (const day of ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]){
+      const v = (await db.ref(day).once("value")).val() || {};
+      out[day] = new Set(
+        Object.entries(v)
+          .filter(([_,t]) => String(t).trim() !== "")
+          .map(([n]) => n)
+      );
     }
-    ROSTER=out;
+    ROSTER = out;
   }
 
-  // Monats-State als Jahr/Monat, um TZ-Bugs zu vermeiden
-  const today=dTZ(new Date());
-  let curYear=today.getFullYear();
-  let curMonth=today.getMonth()+1; // 1-12
+  // Monats-State
+  let cur = dTZ(new Date());            // heute
+  cur.setDate(1);                       // auf den 1. des Monats
 
   function shiftMonth(delta){
-    let m=curMonth+delta, y=curYear;
-    while(m<1){ m+=12; y--; }
-    while(m>12){ m-=12; y++; }
-    curMonth=m; curYear=y;
+    cur = dTZ(new Date(cur.getFullYear(), cur.getMonth() + delta, 1));
     renderMonth();
   }
 
   async function renderMonth(){
-    if(!Object.keys(ROSTER).length) await loadRoster();
+    statusEl.textContent = "Lade…";
+    if (!Object.keys(ROSTER).length) await loadRoster();
 
-    const first=dTZ(new Date(curYear, curMonth-1, 1));
-    const title=fmtMonth.format(first);
-    monthTitle.textContent = title.charAt(0).toUpperCase()+title.slice(1);
+    monthTitle.textContent = capitalize(monthLabel(cur));
 
-    grid.innerHTML='';
-    const lead=dowIndexMonFirst(first);
-    const daysInMonth=new Date(curYear, curMonth, 0).getDate();
+    // 6 × 7 Raster
+    grid.innerHTML = "";
+    const lead = dowMonFirst(cur);                           // Anzahl Felder vor dem 1.
+    const daysInMonth = new Date(cur.getFullYear(), cur.getMonth()+1, 0).getDate();
+    const firstCellDate = addDays(cur, -lead);
 
-    // Leere Startfelder
-    for(let i=0;i<lead;i++){ const c=document.createElement('div'); c.className='cell disabled'; grid.appendChild(c); }
+    // Vorab alle Abmeldungen des Monats abrufen (eine Anfrage pro Tag ist auch ok; hier simpel pro Tag)
+    const absentCache = {};
 
-    // Tage rendern
-    for(let d=1; d<=daysInMonth; d++){
-      const dateObj=dTZ(new Date(curYear, curMonth-1, d));
-      const key=isoDate(dateObj);
-      const idx=dowIndexMonFirst(dateObj); // 0..6
-      const dayName=DAYS[idx];
+    // Zellen bauen
+    for (let i=0; i<42; i++){
+      const dayDate = addDays(firstCellDate, i);
+      const key = isoDate(dayDate);
+      const inMonth = (dayDate.getMonth() === cur.getMonth());
+      const idx = dowMonFirst(dayDate);                 // 0..6
+      const dayName = DOW_NAME[idx];
 
-      const cell=document.createElement('div'); cell.className='cell';
-      const dayLabel=document.createElement('div'); dayLabel.className='day'; dayLabel.textContent=String(d);
-      const namesDiv=document.createElement('div'); namesDiv.className='names';
-      cell.appendChild(dayLabel); cell.appendChild(namesDiv); grid.appendChild(cell);
+      const cell = document.createElement("div");
+      cell.className = "cell";
 
-      if (!SCHOOL.has(dayName) || key < MIN_DATE){ namesDiv.textContent=''; continue; }
+      const dayLabel = document.createElement("div");
+      dayLabel.className = "day" + (inMonth ? "" : " muted");
+      dayLabel.textContent = String(dayDate.getDate());
+      cell.appendChild(dayLabel);
 
-      const roster=Array.from(ROSTER[dayName]||[]);
-      if(!roster.length){ namesDiv.textContent=''; continue; }
+      const namesDiv = document.createElement("div");
+      namesDiv.className = "names";
+      cell.appendChild(namesDiv);
 
+      grid.appendChild(cell);
+
+      // Nur Werktage im aktuellen/anderen Monat anzeigen; vor MIN_DATE keine Namen
+      if (!SCHOOL.has(dayName) || key < MIN_DATE) continue;
+
+      // Erwartete Kinder
+      const roster = Array.from(ROSTER[dayName] || []);
+      if (!roster.length) continue;
+
+      // Abmeldungen laden und Abwesende eintragen
       try{
-        const snap=await db.ref(`abmeldungen/${key}`).once('value');
-        const checked=new Set(Object.keys(snap.val()||{}));
-        const absent=roster.filter(n=>!checked.has(n));
-        namesDiv.textContent=absent.join('\n');
-      }catch{ namesDiv.textContent=''; }
+        if (!(key in absentCache)){
+          const snap = await db.ref(`abmeldungen/${key}`).once("value");
+          const checked = new Set(Object.keys(snap.val() || {}));
+          const absent  = roster.filter(n => !checked.has(n));
+          absentCache[key] = absent;
+        }
+        namesDiv.textContent = absentCache[key].join("\n");
+      }catch(e){
+        namesDiv.textContent = "";
+      }
     }
-
-    // Tail auffüllen
-    const total=lead+daysInMonth;
-    const tail=(7-(total%7))%7;
-    for(let i=0;i<tail;i++){ const c=document.createElement('div'); c.className='cell disabled'; grid.appendChild(c); }
+    statusEl.textContent = "Fertig.";
   }
 
-  document.addEventListener('DOMContentLoaded', renderMonth);
+  function capitalize(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
+
+  document.addEventListener("DOMContentLoaded", renderMonth);
 </script>
 </body>
 </html>
