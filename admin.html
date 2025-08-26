@@ -1,252 +1,168 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Abholzeiten – Admin</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-
-  <link rel="icon" href="data:,">
-  <style>html,body,#root{height:100%}</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abholsystem – Admin</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<style>
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f0f4f8;color:#1a202c}
+  .wrap{max-width:800px;margin:0 auto;padding:20px}
+  h1{margin:10px 0;text-align:center}
+  h2{margin-top:24px;font-size:18px}
+  .card{background:#fff;border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+  input,select{padding:10px;border:1px solid #cbd5e0;border-radius:8px;font-size:15px}
+  button{padding:10px 14px;border:0;border-radius:8px;background:#4299e1;color:#fff;cursor:pointer}
+  button:hover{background:#3182ce}
+  .danger{background:#e53e3e}
+  .danger:hover{background:#c53030}
+  ul{list-style:none;padding:0;margin:0}
+  li{padding:6px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee}
+  .muted{color:#64748b;font-size:14px}
+</style>
 </head>
-<body class="bg-slate-50 text-slate-900">
-  <div id="root" class="h-full"></div>
+<body>
+<div class="wrap">
+  <h1>Admin – Abholsystem</h1>
 
-  <script type="text/babel">
-    const { useEffect, useMemo, useState } = React;
-    const WEEKDAYS = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
-    const qs = new URLSearchParams(location.search);
-    const userId = qs.get('u') || 'public';
+  <div class="card">
+    <h2>Kind hinzufügen</h2>
+    <div class="grid">
+      <input id="newChild" placeholder="Name des Kindes">
+      <button id="addChildBtn">Hinzufügen</button>
+    </div>
+    <div class="muted">Hinweis: Name exakt so wie im Link verwenden (Groß-/Kleinschreibung beachten).</div>
+  </div>
 
-    // Firebase
-    const firebaseConfig = {
-      apiKey: "AIzaSyAYf7wZxI7szM2jdpelENIvVrDHE25M0Jc",
-      authDomain: "neuabholung.firebaseapp.com",
-      databaseURL: "https://neuabholung-default-rtdb.europe-west1.firebasedatabase.app",
-      projectId: "neuabholung",
-      storageBucket: "neuabholung.firebasestorage.app",
-      messagingSenderId: "982992894873",
-      appId: "1:982992894873:web:750e72ee79f585c1717108"
-    };
-    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+  <div class="card">
+    <h2>Basis-Abholzeit ändern</h2>
+    <div class="grid">
+      <select id="admChild"></select>
+      <select id="admDay">
+        <option>Montag</option><option>Dienstag</option><option>Mittwoch</option>
+        <option>Donnerstag</option><option>Freitag</option>
+      </select>
+    </div>
+    <div class="grid">
+      <input id="admTime" type="time">
+      <button id="admSave">Speichern</button>
+    </div>
+  </div>
 
-    function todayKey(){
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,'0');
-      const day = String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
-    }
+  <div class="card">
+    <h2>Einmalige Zeit setzen</h2>
+    <div class="grid">
+      <select id="otChild"></select>
+      <input id="otDate" type="date">
+    </div>
+    <div class="grid">
+      <input id="otTime" type="time">
+      <button id="otSave">Speichern</button>
+    </div>
+  </div>
 
-    async function resetIfNewDay(u){
-      if(!u) return;
-      const metaRef = db.doc(`users/${u}/meta/dailyReset`);
-      const snap = await metaRef.get();
-      const last = snap.exists ? snap.data().lastReset : null;
-      const today = todayKey();
-      if (last === today) return;
+  <div class="card">
+    <h2>Kinder löschen</h2>
+    <ul id="childList"></ul>
+  </div>
 
-      const kidsSnap = await db.collection(`users/${u}/children`).get();
-      const batch = db.batch();
-      kidsSnap.forEach(docSnap => {
-        batch.update(docSnap.ref, { status:'anwesend', abgemeldetAm: null });
+  <div id="adminInfo" class="muted"></div>
+</div>
+
+<script>
+  const firebaseConfig = {
+    apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
+    databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const qs = s=>document.querySelector(s);
+  const admChild=qs('#admChild'), admDay=qs('#admDay'), admTime=qs('#admTime');
+  const otChild=qs('#otChild'), otDate=qs('#otDate'), otTime=qs('#otTime');
+  const childList=qs('#childList'), info=qs('#adminInfo');
+
+  let allChildren=new Set();
+
+  async function loadChildren(){
+    childList.innerHTML='Lade…';
+    const snap=await db.ref().once('value');
+    const data=snap.val()||{};
+    const set=new Set();
+    ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"].forEach(d=>{
+      if(data[d]) Object.keys(data[d]).forEach(n=>set.add(n));
+    });
+    allChildren=set;
+    renderChildSelects();
+    renderChildList();
+  }
+
+  function renderChildSelects(){
+    const opts=Array.from(allChildren).sort().map(n=>`<option>${n}</option>`).join('');
+    admChild.innerHTML=opts;
+    otChild.innerHTML=opts;
+  }
+
+  function renderChildList(){
+    childList.innerHTML='';
+    Array.from(allChildren).sort().forEach(n=>{
+      const li=document.createElement('li');
+      li.textContent=n;
+      const btn=document.createElement('button');
+      btn.textContent='Löschen';
+      btn.className='danger';
+      btn.onclick=()=>deleteChild(n);
+      li.appendChild(btn);
+      childList.appendChild(li);
+    });
+  }
+
+  qs('#addChildBtn').onclick=async()=>{
+    const name=qs('#newChild').value.trim();
+    if(!name){info.textContent='Bitte Namen eingeben.';return;}
+    info.textContent='Speichere…';
+    try{
+      await Promise.all(["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]
+        .map(day=>db.ref(`${day}/${name}`).set("")));
+      info.textContent='Kind hinzugefügt.';
+      qs('#newChild').value='';
+      loadChildren();
+    }catch(e){info.textContent='Fehler beim Hinzufügen.';}
+  };
+
+  qs('#admSave').onclick=async()=>{
+    const name=admChild.value, day=admDay.value, time=admTime.value;
+    if(!name||!day||!time){info.textContent='Bitte alle Felder füllen.';return;}
+    info.textContent='Speichere…';
+    try{await db.ref(`${day}/${name}`).set(time); info.textContent='Basiszeit gespeichert.';}
+    catch(e){info.textContent='Fehler beim Speichern.';}
+  };
+
+  qs('#otSave').onclick=async()=>{
+    const name=otChild.value, date=otDate.value, time=otTime.value;
+    if(!name||!date||!time){info.textContent='Bitte alle Felder füllen.';return;}
+    info.textContent='Speichere…';
+    try{await db.ref(`onetime/${date}/${name}`).set(time); info.textContent='Einmalige Zeit gespeichert.';}
+    catch(e){info.textContent='Fehler beim Speichern.';}
+  };
+
+  async function deleteChild(name){
+    if(!confirm(`„${name}“ wirklich löschen?`)) return;
+    info.textContent='Lösche…';
+    try{
+      const updates={};
+      ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"].forEach(day=>{
+        updates[`${day}/${name}`]=null;
       });
-      batch.set(metaRef, { lastReset: today }, { merge: true });
-      await batch.commit();
-    }
+      await db.ref().update(updates);
+      info.textContent='Kind gelöscht.';
+      loadChildren();
+    }catch(e){info.textContent='Fehler beim Löschen.';}
+  }
 
-    function AdminApp(){
-      const [children,setChildren] = useState([]);
-      const [kidName,setKidName] = useState("");
-      const [weekday,setWeekday] = useState("Montag");
-      const [weeklyTimes,setWeeklyTimes] = useState({});
-
-      const [dateStr,setDateStr] = useState(()=> new Date().toISOString().slice(0,10));
-      const [oneTimes,setOneTimes] = useState({});
-      const [checkDate,setCheckDate] = useState(()=> new Date().toISOString().slice(0,10));
-      const [present,setPresent] = useState([]);
-
-      const baseUrl = location.origin + location.pathname.replace('admin.html','');
-
-      async function loadChildren(){
-        const snap = await db.collection(`users/${userId}/children`).get();
-        setChildren(snap.docs.map(d=>({id:d.id, ...d.data()})));
-      }
-      async function loadWeekly(day){
-        const ref = db.doc(`users/${userId}/pickupTimes/${day}`);
-        const s = await ref.get();
-        setWeeklyTimes(s.exists ? (s.data().times || {}) : {});
-      }
-      async function loadOne(dateStr){
-        const ref = db.doc(`users/${userId}/oneTimePickupTimes/${dateStr}`);
-        const s = await ref.get();
-        setOneTimes(s.exists ? (s.data().times || {}) : {});
-      }
-
-      useEffect(()=>{
-        (async ()=>{
-          await resetIfNewDay(userId);
-          await loadChildren();
-          await loadWeekly(weekday);
-          await loadOne(dateStr);
-        })();
-      },[]);
-      useEffect(()=>{ loadWeekly(weekday); },[weekday]);
-      useEffect(()=>{ loadOne(dateStr); },[dateStr]);
-
-      async function addChild(){
-        const name = (kidName||"").trim();
-        if(!name) return;
-        await db.collection(`users/${userId}/children`).add({ name, status:'anwesend', abgemeldetAm: null });
-        setKidName("");
-        await loadChildren();
-      }
-      async function resetChild(id){
-        await db.doc(`users/${userId}/children/${id}`).update({ status:'anwesend', abgemeldetAm: null });
-        await loadChildren();
-      }
-      async function removeChild(id){
-        await db.doc(`users/${userId}/children/${id}`).delete();
-        await loadChildren();
-      }
-
-      async function saveWeekly(){
-        await db.doc(`users/${userId}/pickupTimes/${weekday}`).set({ times: weeklyTimes }, { merge:true });
-        alert("Reguläre Zeiten gespeichert.");
-      }
-      async function saveOne(){
-        await db.doc(`users/${userId}/oneTimePickupTimes/${dateStr}`).set({ times: oneTimes }, { merge:true });
-        alert("Einmalige Zeiten gespeichert.");
-      }
-
-      function indexLink(){
-        return `${baseUrl}index.html?u=${userId}`;
-      }
-      function childLink(k){
-        const p = new URLSearchParams({ u:userId, name:k.name, cid:k.id });
-        return `${baseUrl}child.html?${p.toString()}`;
-      }
-
-      // Korrigierte Funktion: Prüft den 'status'
-      async function computePresence(){
-        const list = [];
-        for(const k of children){
-          if (k.status === 'anwesend') {
-            list.push(k.name);
-          }
-        }
-        setPresent(list);
-      }
-      useEffect(()=>{ computePresence(); },[children, checkDate]);
-
-      return (
-        <div className="max-w-5xl mx-auto p-4 space-y-6">
-          <header className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold">Admin</h1>
-              <div className="text-xs text-slate-500">Nutzer-ID: <span className="font-mono">{userId}</span> · Auto-Reset aktiv</div>
-            </div>
-            <a className="text-sm underline" target="_blank" href={indexLink()}>Öffentliche Ansicht öffnen</a>
-          </header>
-
-          {/* Kinderverwaltung */}
-          <section className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-lg font-semibold mb-3">Kinderverwaltung</h2>
-            <div className="flex gap-2 mb-4">
-              <input className="border rounded px-3 py-2 flex-1" placeholder="Name des Kindes"
-                     value={kidName} onChange={e=>setKidName(e.target.value)} />
-              <button className="bg-emerald-600 text-white rounded px-4" onClick={addChild}>Hinzufügen</button>
-            </div>
-            <div className="grid md:grid-cols-2 gap-3">
-              {children.map(k=>(
-                <div key={k.id} className="border rounded-lg p-3 flex items-center justify-between">
-                  <div className="min-w-0">
-                    <div className="font-medium">{k.name}</div>
-                    <div className="text-xs text-slate-500">Status: {k.status || 'anwesend'}</div>
-                    <div className="text-xs text-slate-500 break-all">
-                      Link: <a className="underline" target="_blank" href={childLink(k)}>{childLink(k)}</a>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button className="text-sm bg-sky-600 text-white rounded px-3 py-1" onClick={()=>resetChild(k.id)}>Reset</button>
-                    <button className="text-sm bg-red-600 text-white rounded px-3 py-1" onClick={()=>removeChild(k.id)}>Löschen</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Reguläre Abholzeiten */}
-          <section className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-lg font-semibold mb-3">Reguläre Abholzeiten</h2>
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <label className="text-sm">Wochentag:</label>
-              <select className="border rounded px-3 py-2" value={weekday} onChange={e=>setWeekday(e.target.value)}>
-                {WEEKDAYS.slice(1,6).map(d=><option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              {children.map(k=>(
-                <div key={k.id} className="flex items-center gap-2">
-                  <div className="w-48">{k.name}</div>
-                  <input className="border rounded px-3 py-2" placeholder="HH:mm"
-                         value={weeklyTimes[k.name] || ''} onChange={e=>setWeeklyTimes({...weeklyTimes, [k.name]: e.target.value})}/>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3">
-              <button className="bg-slate-900 text-white rounded px-4 py-2" onClick={saveWeekly}>Speichern</button>
-            </div>
-          </section>
-
-          {/* Einmalige Abholzeiten */}
-          <section className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-lg font-semibold mb-3">Einmalige Abholzeiten</h2>
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <label className="text-sm">Datum:</label>
-              <input type="date" className="border rounded px-3 py-2" value={dateStr} onChange={e=>setDateStr(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              {children.map(k=>(
-                <div key={k.id} className="flex items-center gap-2">
-                  <div className="w-48">{k.name}</div>
-                  <input className="border rounded px-3 py-2" placeholder="HH:mm"
-                         value={oneTimes[k.name] || ''} onChange={e=>setOneTimes({...oneTimes, [k.name]: e.target.value})}/>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3">
-              <button className="bg-slate-900 text-white rounded px-4 py-2" onClick={saveOne}>Speichern</button>
-            </div>
-          </section>
-
-          {/* Anwesenheitsprüfung */}
-          <section className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-lg font-semibold mb-3">Anwesenheitsprüfung</h2>
-            <div className="flex items-center gap-2 mb-3">
-              <label className="text-sm">Datum:</label>
-              <input type="date" className="border rounded px-3 py-2" value={checkDate} onChange={e=>setCheckDate(e.target.value)} />
-              <button className="bg-slate-900 text-white rounded px-3 py-2" onClick={computePresence}>Aktualisieren</button>
-            </div>
-            {present.length === 0 ? (
-              <div className="text-slate-600">Niemand ist als anwesend gelistet.</div>
-            ) : (
-              <ul className="list-disc list-inside">{present.map(n=><li key={n}>{n}</li>)}</ul>
-            )}
-          </section>
-        </div>
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById('root')).render(<AdminApp/>);
-  </script>
+  document.addEventListener('DOMContentLoaded',loadChildren);
+</script>
 </body>
 </html>
