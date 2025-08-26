@@ -7,31 +7,33 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 <style>
-  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f0f4f8;color:#1a202c}
-  .wrap{max-width:700px;margin:0 auto;padding:16px}
-  h1{margin:12px 0;text-align:center;font-size:22px}
+  :root{--fg:#1a202c;--muted:#64748b;--accent:#4299e1;--bg:#f0f4f8;--white:#fff}
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:var(--bg);color:var(--fg)}
+  .wrap{max-width:780px;margin:0 auto;padding:16px}
+  h1{margin:10px 0;text-align:center;font-size:22px}
   .row{display:flex;gap:8px;justify-content:center;margin:8px 0}
-  button{padding:10px 14px;border:0;border-radius:10px;background:#4299e1;color:#fff;cursor:pointer}
+  button{padding:9px 14px;border:0;border-radius:999px;background:var(--accent);color:#fff;cursor:pointer}
   button.secondary{background:#64748b}
-  ul{list-style:none;padding:0;margin:12px 0}
-  li{background:#fff;margin:8px 0;padding:14px 12px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-  .name{font-weight:600}
-  .muted{color:#667085}
-  .pill{padding:4px 8px;border-radius:999px;background:#eef;border:1px solid #dde;font-variant-numeric:tabular-nums}
+  #info{text-align:center;margin:6px 0;color:#475569}
+  /* Gruppenansicht */
+  .slot{background:var(--white);border-radius:10px;padding:10px 12px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .slot h2{margin:0 0 8px 0;font-size:16px}
+  .names{list-style:none;margin:0;padding:0}
+  .names li{padding:4px 0;font-size:16px;line-height:1.35}
   .strike{text-decoration:line-through;color:#9aa1a9}
-  .onetime .pill{background:#fff7e0;border-color:#f6cf7a}
+  .onetime{color:#8a5800}
   /* Modal */
-  .modal{display:none;position:fixed;z-index:1000;inset:0;background:rgba(0,0,0,.4);justify-content:center;align-items:center}
-  .modal .box{background:#fff;padding:16px;border-radius:10px;width:min(92vw,520px)}
-  .days{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px}
+  .modal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.4);justify-content:center;align-items:center}
+  .box{background:#fff;padding:16px;border-radius:10px;width:min(92vw,520px)}
+  .days{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:8px}
   .days button{background:#e2e8f0;color:#334155}
   .days button.active{background:#38a169;color:#fff}
   /* Admin */
   .admin{display:none}
-  .card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin:10px 0}
+  .card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin:10px 0}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   input,select{padding:10px;border:1px solid #cbd5e0;border-radius:8px}
-  #info{text-align:center;margin-top:6px;color:#475569}
+  .muted{color:var(--muted);font-size:14px}
 </style>
 </head>
 <body>
@@ -43,7 +45,7 @@
     <button id="adminBtn">Admin</button>
   </div>
   <div id="info">Lade…</div>
-  <ul id="list"></ul>
+  <div id="slots"></div>
 
   <div id="admin" class="admin">
     <div class="card">
@@ -51,7 +53,8 @@
       <div class="grid">
         <select id="admChild"></select>
         <select id="admDay">
-          <option>Montag</option><option>Dienstag</option><option>Mittwoch</option><option>Donnerstag</option><option>Freitag</option>
+          <option>Montag</option><option>Dienstag</option><option>Mittwoch</option>
+          <option>Donnerstag</option><option>Freitag</option>
         </select>
       </div>
       <div class="grid">
@@ -69,8 +72,8 @@
         <input id="otTime" type="time">
         <button id="otSave">Speichern</button>
       </div>
+      <div id="adminInfo" class="muted"></div>
     </div>
-    <div id="adminInfo" class="muted"></div>
   </div>
 </div>
 
@@ -78,7 +81,7 @@
 <div id="dayModal" class="modal"><div class="box">
   <h3>Wochentag auswählen</h3>
   <div id="dayBtns" class="days"></div>
-  <div class="row" style="margin-top:14px"><button id="closeDay" class="secondary">Schließen</button></div>
+  <div class="row" style="margin-top:10px"><button id="closeDay" class="secondary">Schließen</button></div>
 </div></div>
 
 <script>
@@ -94,11 +97,9 @@
   const WEEK=["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
   const SCHOOL=["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
   const qs = s=>document.querySelector(s);
-  const qsa = s=>Array.from(document.querySelectorAll(s));
-
   function nowBerlin(){ return new Date(new Date().toLocaleString('de-DE',{timeZone:'Europe/Berlin'})); }
   function todayName(){ return WEEK[nowBerlin().getDay()]; }
-  function dateKey(d=new Date()){ const x=nowBerlin(); if(d!==undefined&&d instanceof Date){}; const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,'0'), da=String(x.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
+  function dateKey(d){ const x=d?new Date(d):nowBerlin(); const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,'0'), da=String(x.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
   function parseHHMM(s){ if(!s||!/^\d{2}:\d{2}$/.test(s)) return null; const [h,m]=s.split(':').map(Number); return h*60+m; }
   function nowMinutes(){ const n=nowBerlin(); return n.getHours()*60+n.getMinutes(); }
 
@@ -106,86 +107,100 @@
   let currentDay = todayName();
   let allChildren = new Set();
 
-  // URL-params
+  // URL params
   const params = new URLSearchParams(location.search);
   const linkChild = params.get('child');
   const isAdmin = params.get('admin') === '1';
 
-  // DOM
-  const titleEl = qs('#title'), infoEl = qs('#info'), listEl = qs('#list');
+  // DOM refs
+  const titleEl = qs('#title'), infoEl = qs('#info'), slotsEl = qs('#slots');
   const adminEl = qs('#admin'), adminInfo = qs('#adminInfo');
 
+  // UI events
   qs('#refreshBtn').onclick = ()=>loadDay();
   qs('#adminBtn').onclick = ()=>adminEl.style.display = adminEl.style.display==='block'?'none':'block';
   qs('#chooseDayBtn').onclick = ()=>openDayModal();
   qs('#closeDay').onclick = ()=>qs('#dayModal').style.display='none';
 
-  // Build day buttons
   function openDayModal(){
-    const box = qs('#dayBtns'); box.innerHTML='';
+    const c = qs('#dayBtns'); c.innerHTML='';
     SCHOOL.forEach(d=>{
       const b=document.createElement('button');
-      b.textContent=d; if(d===currentDay) b.classList.add('active');
+      b.textContent=d;
+      if(d===currentDay) b.classList.add('active');
       b.onclick=()=>{ currentDay=d; qs('#dayModal').style.display='none'; loadDay(); };
-      box.appendChild(b);
+      c.appendChild(b);
     });
     qs('#dayModal').style.display='flex';
   }
 
-  // Load and render
   async function loadDay(){
     titleEl.textContent = `Heute: ${currentDay}`;
-    if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; listEl.innerHTML=''; return; }
-    infoEl.textContent='Lade…'; listEl.innerHTML='';
+    if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; slotsEl.innerHTML=''; return; }
+    infoEl.textContent='Lade…'; slotsEl.innerHTML='';
 
     try{
-      const [timesSnap, statusSnap, onetimeSnap] = await Promise.all([
+      const [timesSnap, statusSnap, otSnap] = await Promise.all([
         db.ref(currentDay).once('value'),
         db.ref(`abmeldungen/${dateKey()}`).once('value'),
         db.ref(`onetime/${dateKey()}`).once('value')
       ]);
       const times = timesSnap.val() || {};
       const status = statusSnap.val() || {};
-      const onetime = onetimeSnap.val() || {};
+      const onetime = otSnap.val() || {};
 
-      // collect children for admin selects
+      // Admin-Selects
       allChildren = new Set(Object.keys(times));
       renderAdminSelects();
 
-      // optional: handle special link auto-check
+      // NFC-Link auto-check
       if (linkChild) await tryAutoCheckout(times, status);
 
-      // re-read status if changed
+      // frischer Status nach möglicher Änderung
       const status2 = (await db.ref(`abmeldungen/${dateKey()}`).once('value')).val() || {};
 
-      // build list with onetime override
+      // Zeit-Override für HEUTE
       const rows = Object.entries(times).map(([name, baseTime])=>{
-        const ot = onetime[name] || null; // one-time for today if exists
+        const ot = onetime[name] || null;
         const finalTime = ot || baseTime || null;
-        return {name, baseTime, finalTime, isOnetime: !!ot};
+        return {name, baseTime, finalTime, isOnetime: !!ot, strike: !!status2[name]};
       });
 
-      // sort by finalTime then name
-      rows.sort((a,b)=>{
-        const am=parseHHMM(a.finalTime), bm=parseHHMM(b.finalTime);
-        if(am===null && bm===null) return a.name.localeCompare(b.name,'de');
+      // Gruppieren nach exakter HH:MM
+      const groups = {};
+      rows.forEach(r=>{
+        const t = r.finalTime || '—';
+        if (!groups[t]) groups[t]=[];
+        groups[t].push(r);
+      });
+
+      // Zeiten sortieren chronologisch, „—“ ans Ende
+      const sortedTimes = Object.keys(groups).sort((a,b)=>{
+        const am=parseHHMM(a), bm=parseHHMM(b);
+        if(am===null && bm===null) return 0;
         if(am===null) return 1;
         if(bm===null) return -1;
         return am-bm;
       });
 
-      rows.forEach(r=>{
-        const li=document.createElement('li');
-        if (status2[r.name]) li.classList.add('strike');
-        if (r.isOnetime) li.classList.add('onetime');
+      if (sortedTimes.length===0){ infoEl.textContent='Keine Einträge für heute.'; return; }
 
-        const left=document.createElement('div');
-        left.innerHTML=`<div class="name">${r.name}</div><div class="muted">${r.isOnetime?'Einmalig für heute':'Basiszeit'}</div>`;
-        const right=document.createElement('div');
-        right.innerHTML=`<span class="pill">${r.finalTime || '–'}</span>`;
+      // Render
+      sortedTimes.forEach(t=>{
+        const slot=document.createElement('div'); slot.className='slot';
+        const label = t==='—' ? 'ohne Zeit' : `${t} Uhr`;
+        slot.innerHTML = `<h2>${label}</h2><ul class="names"></ul>`;
+        const ul = slot.querySelector('.names');
 
-        li.appendChild(left); li.appendChild(right);
-        listEl.appendChild(li);
+        groups[t].sort((a,b)=>a.name.localeCompare(b.name,'de')).forEach(r=>{
+          const li=document.createElement('li');
+          if(r.strike) li.classList.add('strike');
+          if(r.isOnetime) li.classList.add('onetime');
+          li.textContent = r.name;
+          ul.appendChild(li);
+        });
+
+        slotsEl.appendChild(slot);
       });
 
       infoEl.textContent='Fertig.';
@@ -218,34 +233,26 @@
     qs('#otChild').innerHTML  = opts;
   }
 
-  // Admin actions
+  // Admin speichern
   qs('#admSave').onclick = async ()=>{
     const name = qs('#admChild').value;
     const day  = qs('#admDay').value;
     const time = qs('#admTime').value;
     if(!name||!day||!time){ adminInfo.textContent='Bitte alle Felder füllen.'; return; }
     adminInfo.textContent='Speichere…';
-    try{
-      await db.ref(`${day}/${name}`).set(time);
-      adminInfo.textContent='Basiszeit gespeichert.'; if(day===currentDay) loadDay();
-    }catch(e){ adminInfo.textContent='Fehler beim Speichern.'; }
+    try{ await db.ref(`${day}/${name}`).set(time); adminInfo.textContent='Basiszeit gespeichert.'; if(day===currentDay) loadDay(); }
+    catch(e){ adminInfo.textContent='Fehler beim Speichern.'; }
   };
-
   qs('#otSave').onclick = async ()=>{
     const name = qs('#otChild').value;
     const date = qs('#otDate').value;
     const time = qs('#otTime').value;
     if(!name||!date||!time){ adminInfo.textContent='Bitte alle Felder füllen.'; return; }
     adminInfo.textContent='Speichere…';
-    try{
-      await db.ref(`onetime/${date}/${name}`).set(time);
-      // nur wenn onetime für HEUTE gesetzt wurde, direkt sichtbar
-      if (date === dateKey()) await loadDay();
-      adminInfo.textContent='Einmalige Zeit gespeichert.';
-    }catch(e){ adminInfo.textContent='Fehler beim Speichern.'; }
+    try{ await db.ref(`onetime/${date}/${name}`).set(time); if(date===dateKey()) loadDay(); adminInfo.textContent='Einmalige Zeit gespeichert.'; }
+    catch(e){ adminInfo.textContent='Fehler beim Speichern.'; }
   };
 
-  // Start
   document.addEventListener('DOMContentLoaded', loadDay);
 </script>
 </body>
