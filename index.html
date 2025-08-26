@@ -28,6 +28,9 @@
   .days{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:8px}
   .days button{background:#e2e8f0;color:#334155}
   .days button.active{background:#38a169;color:#fff}
+  /* Link-View */
+  #link-view{display:none;min-height:50vh;display:flex;align-items:center;justify-content:center;}
+  #link-msg{background:#fff;padding:22px 26px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:20px;text-align:center;}
 </style>
 </head>
 <body>
@@ -40,6 +43,7 @@
   </div>
   <div id="info">Lade…</div>
   <div id="slots"></div>
+  <div id="link-view"><div id="link-msg"></div></div>
 </div>
 
 <!-- Day selector -->
@@ -58,7 +62,7 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
-  /* Helpers: Europe/Berlin ohne fehlerhaftes Date-Parsing */
+  /* Helpers: Europe/Berlin */
   function berlinParts(d=new Date()){
     const fmt = new Intl.DateTimeFormat('de-DE',{
       timeZone:'Europe/Berlin', hour12:false,
@@ -108,6 +112,22 @@
     qs('#dayModal').style.display='flex';
   }
 
+  /* Link-Modus */
+  function enterLinkMode(msg){
+    document.getElementById('link-msg').textContent = msg;
+    document.getElementById('link-view').style.display = 'flex';
+    document.getElementById('slots').style.display = 'none';
+    document.getElementById('chooseDayBtn').style.display = 'none';
+    document.getElementById('refreshBtn').style.display = 'none';
+    document.getElementById('adminLinkBtn').style.display = 'none';
+
+    // Back-Button blockieren
+    history.pushState(null, '', location.href);
+    window.addEventListener('popstate', () => {
+      history.pushState(null, '', location.href);
+    });
+  }
+
   async function loadDay(){
     titleEl.textContent = `Heute: ${currentDay}`;
     if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; slotsEl.innerHTML=''; return; }
@@ -123,18 +143,20 @@
       const status = statusSnap.val() || {};
       const onetime = otSnap.val() || {};
 
-      // NFC-Link: automatisches Abmelden
-      if (linkChild) await tryAutoCheckout(times, status);
+      // Link-Modus
+      if (linkChild){
+        const msg = await tryAutoCheckout(times, status);
+        enterLinkMode(msg);
+        return;
+      }
 
       const status2 = (await db.ref(`abmeldungen/${dateKey()}`).once('value')).val() || {};
 
-      // rows mit ggf. einmaliger Zeit für HEUTE
       const rows = Object.entries(times).map(([name, baseTime])=>{
         const ot = onetime[name] || null;
         return {name, finalTime: ot || baseTime || null, isOnetime: !!ot, strike: !!status2[name]};
       });
 
-      // Gruppieren nach HH:MM
       const groups = {};
       rows.forEach(r=>{
         const t = r.finalTime || '—';
@@ -175,17 +197,20 @@
   async function tryAutoCheckout(times, status){
     const name = linkChild;
     const setRef = db.ref(`abmeldungen/${dateKey()}/${name}`);
-    if (status && status[name]){ infoEl.textContent = `${name}: bereits abgemeldet.`; return; }
-    const t = String(times?.[name] || '');
-    if (!t){ infoEl.textContent = `Unbekanntes Kind: ${name}`; return; }
+
+    if (!times || !times[name]) return `Unbekanntes Kind: ${name}`;
+    if (status && status[name]) return `${name}: bereits abgemeldet.`;
+
+    const t = String(times[name]);
     const target = parseHHMM(t);
     const allowedFrom = target!==null ? target-5 : null;
+
     if (isAdmin || allowedFrom===null || nowMinutes()>=allowedFrom){
-      try { await setRef.set(true); infoEl.textContent=`${name}: abgemeldet.`; }
-      catch(e){ infoEl.textContent=`${name}: Abmeldung fehlgeschlagen.`; }
+      try { await setRef.set(true); return `${name}: erfolgreich abgemeldet.`; }
+      catch { return `${name}: Abmeldung fehlgeschlagen.`; }
     } else {
       const wait = Math.max(0, allowedFrom - nowMinutes());
-      infoEl.textContent = `${name}: bitte noch ${wait} Min warten.`;
+      return `${name}: bitte noch ${wait} Min warten.`;
     }
   }
 
