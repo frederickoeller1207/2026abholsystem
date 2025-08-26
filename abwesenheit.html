@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anwesenheit – Übersicht</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<style>
+  :root{--fg:#1a202c;--muted:#64748b;--accent:#4299e1;--bg:#f0f4f8;--white:#fff}
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:var(--bg);color:var(--fg)}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  h1{margin:8px 0;text-align:center;font-size:22px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0}
+  .controls > *{padding:8px 10px;border-radius:10px;border:1px solid #cbd5e0;background:#fff}
+  .btn{background:#4299e1;color:#fff;border:0;cursor:pointer}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
+  .card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .card h3{margin:0 0 8px 0;font-size:16px}
+  .small{font-size:13px;color:var(--muted)}
+  ul{list-style:none;margin:8px 0 0 0;padding:0}
+  li{padding:4px 0;border-bottom:1px dashed #eee}
+  .stats{display:flex;gap:10px;flex-wrap:wrap}
+  .pill{padding:2px 8px;border-radius:999px;background:#eef;border:1px solid #dde;font-variant-numeric:tabular-nums}
+  .warn{background:#fde68a;border-color:#f6c453}
+  .ok{background:#dcfce7;border-color:#86efac}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Anwesenheit</h1>
+
+  <div class="controls">
+    <label><input type="radio" name="mode" value="week" checked> Woche</label>
+    <label><input type="radio" name="mode" value="month"> Monat</label>
+
+    <input type="date" id="weekDate">
+    <input type="month" id="monthInput" style="display:none">
+    <button id="runBtn" class="btn">Auswerten</button>
+  </div>
+
+  <div id="info" class="small" style="text-align:center">Lade…</div>
+  <div id="summary" class="small" style="text-align:center;margin-top:6px"></div>
+  <div id="results" class="grid"></div>
+</div>
+
+<script>
+  // Firebase
+  const firebaseConfig = {
+    apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
+    databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // Helpers (Europe/Berlin)
+  function berlinDate(d=new Date()){
+    return new Date(new Date(d).toLocaleString('de-DE',{timeZone:'Europe/Berlin'}));
+  }
+  function formatDateISO(d){
+    const x=berlinDate(d);
+    const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,'0'), da=String(x.getDate()).padStart(2,'0');
+    return `${y}-${m}-${da}`;
+  }
+  const WEEK = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+  const SCHOOL = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
+
+  function mondayOfWeek(d){
+    const x=berlinDate(d);
+    const day=(x.getDay()+6)%7; // Mo=0
+    const monday=new Date(x); monday.setDate(x.getDate()-day);
+    return berlinDate(monday);
+  }
+  function addDays(d,n){ const x=berlinDate(d); x.setDate(x.getDate()+n); return x; }
+
+  // UI
+  const infoEl = document.getElementById('info');
+  const resEl  = document.getElementById('results');
+  const sumEl  = document.getElementById('summary');
+  const weekDate = document.getElementById('weekDate');
+  const monthInput = document.getElementById('monthInput');
+
+  // Mode toggle
+  document.querySelectorAll('input[name="mode"]').forEach(r=>{
+    r.addEventListener('change', ()=>{
+      if (r.value==='week' && r.checked){ weekDate.style.display=''; monthInput.style.display='none'; }
+      if (r.value==='month' && r.checked){ weekDate.style.display='none'; monthInput.style.display=''; }
+    });
+  });
+
+  document.getElementById('runBtn').addEventListener('click', run);
+
+  // Preload defaults
+  (function initDefaults(){
+    // Default Woche: heute
+    const todayISO = formatDateISO(new Date());
+    weekDate.value = todayISO;
+    // Default Monat: aktueller Monat
+    const x = berlinDate(new Date());
+    monthInput.value = `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`;
+    infoEl.textContent = "Bereit.";
+  })();
+
+  // Roster cache (Basiszeiten, leere Zeiten werden ignoriert)
+  let ROSTER = {}; // { Montag: Set(names), ... }
+  async function loadRoster(){
+    const out = {};
+    await Promise.all(SCHOOL.map(async day=>{
+      const snap = await db.ref(day).once('value');
+      const v = snap.val()||{};
+      out[day] = new Set(Object.entries(v).filter(([_,time])=>String(time).trim()!=="").map(([name])=>name));
+    }));
+    ROSTER = out;
+  }
+
+  async function run(){
+    infoEl.textContent = "Lade Basislisten…";
+    resEl.innerHTML = ""; sumEl.textContent = "";
+
+    if (!Object.keys(ROSTER).length) await loadRoster();
+
+    const mode = document.querySelector('input[name="mode"]:checked').value;
+    if (mode==='week'){
+      const base = weekDate.value ? new Date(weekDate.value) : new Date();
+      await renderWeek(base);
+    } else {
+      const ym = monthInput.value; // "YYYY-MM"
+      if (!ym){ infoEl.textContent="Bitte Monat wählen."; return; }
+      const [y,m] = ym.split('-').map(Number);
+      await renderMonth(y, m); // m = 1..12
+    }
+  }
+
+  async function renderWeek(anyDate){
+    infoEl.textContent = "Woche wird ausgewertet…";
+    const monday = mondayOfWeek(anyDate);
+    const days = [0,1,2,3,4].map(i=>addDays(monday,i));
+    const cards = [];
+    let totalExpected=0, totalPresent=0;
+
+    for (const d of days){
+      const dayName = WEEK[d.getDay()];
+      if (!SCHOOL.includes(dayName)) continue;
+
+      const roster = Array.from(ROSTER[dayName]||[]);
+      const expected = roster.length;
+
+      const key = formatDateISO(d);
+      const checkSnap = await db.ref(`abmeldungen/${key}`).once('value');
+      const checked = new Set(Object.keys(checkSnap.val()||{}));
+
+      const present = roster.filter(n=>checked.has(n));
+      const absent  = roster.filter(n=>!checked.has(n));
+
+      totalExpected += expected;
+      totalPresent  += present.length;
+
+      cards.push({
+        title: `${dayName}, ${key}`,
+        expected, present: present.length, absent: absent.length,
+        absentList: absent
+      });
+    }
+
+    resEl.innerHTML = "";
+    for (const c of cards){
+      const div = document.createElement('div');
+      div.className = 'card';
+      const okClass = c.absent===0 ? 'ok' : 'warn';
+      div.innerHTML = `
+        <h3>${c.title}</h3>
+        <div class="stats">
+          <span class="pill">Erwartet: ${c.expected}</span>
+          <span class="pill ok">Abgemeldet: ${c.present}</span>
+          <span class="pill ${okClass}">Nicht abgemeldet: ${c.absent}</span>
+        </div>
+        <div class="small" style="margin-top:6px">Nicht abgemeldet:</div>
+        <ul>${c.absentList.map(n=>`<li>${n}</li>`).join('') || '<li>—</li>'}</ul>
+      `;
+      resEl.appendChild(div);
+    }
+
+    sumEl.textContent = `Summe Woche – erwartet: ${totalExpected}, abgemeldet: ${totalPresent}, nicht abgemeldet: ${totalExpected-totalPresent}`;
+    infoEl.textContent = "Fertig.";
+  }
+
+  async function renderMonth(year, month1to12){
+    infoEl.textContent = "Monat wird ausgewertet…";
+    const first = berlinDate(new Date(year, month1to12-1, 1));
+    const next  = berlinDate(new Date(year, month1to12, 1));
+    const days = [];
+    for (let d=new Date(first); d<next; d.setDate(d.getDate()+1)){
+      const dn = WEEK[d.getDay()];
+      if (SCHOOL.includes(dn)) days.push(new Date(d));
+    }
+
+    let totalExpected=0, totalPresent=0;
+    resEl.innerHTML = "";
+
+    for (const d of days){
+      const dayName = WEEK[d.getDay()];
+      const roster = Array.from(ROSTER[dayName]||[]);
+      const expected = roster.length;
+
+      const key = formatDateISO(d);
+      const checkSnap = await db.ref(`abmeldungen/${key}`).once('value');
+      const checked = new Set(Object.keys(checkSnap.val()||{}));
+
+      const present = roster.filter(n=>checked.has(n));
+      const absent  = roster.filter(n=>!checked.has(n));
+
+      const div = document.createElement('div');
+      div.className = 'card';
+      const okClass = absent.length===0 ? 'ok' : 'warn';
+      div.innerHTML = `
+        <h3>${dayName}, ${key}</h3>
+        <div class="stats">
+          <span class="pill">Erwartet: ${expected}</span>
+          <span class="pill ok">Abgemeldet: ${present.length}</span>
+          <span class="pill ${okClass}">Nicht abgemeldet: ${absent.length}</span>
+        </div>
+        <div class="small" style="margin-top:6px">Nicht abgemeldet:</div>
+        <ul>${absent.map(n=>`<li>${n}</li>`).join('') || '<li>—</li>'}</ul>
+      `;
+      resEl.appendChild(div);
+
+      totalExpected += expected;
+      totalPresent  += present.length;
+    }
+
+    sumEl.textContent = `Summe Monat – erwartet: ${totalExpected}, abgemeldet: ${totalPresent}, nicht abgemeldet: ${totalExpected-totalPresent}`;
+    infoEl.textContent = "Fertig.";
+  }
+
+  // Autostart
+  document.addEventListener('DOMContentLoaded', run);
+</script>
+</body>
+</html>
