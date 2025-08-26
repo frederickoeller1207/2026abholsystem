@@ -1,292 +1,252 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Abholsystem</title>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: #f0f4f8; color: #1a202c; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-        .container { width: 100%; max-width: 600px; padding: 16px; box-sizing: border-box; }
-        .header { text-align: center; margin-bottom: 24px; }
-        h1 { font-size: 2rem; font-weight: 700; color: #2d3748; }
-        .nav-buttons { display: flex; justify-content: center; margin-bottom: 16px; }
-        .nav-buttons button { background-color: #4299e1; color: white; border: none; padding: 12px 24px; border-radius: 9999px; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; }
-        .nav-buttons button:hover { background-color: #3182ce; }
-        .day-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
-        .day-buttons button { background-color: #e2e8f0; color: #4a5568; border: none; padding: 8px 16px; border-radius: 9999px; cursor: pointer; transition: background-color 0.2s; }
-        .day-buttons button.active { background-color: #38a169; color: white; }
-        .time-slot { background-color: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 16px; margin-bottom: 16px; }
-        .time-slot-header { font-size: 1.25rem; font-weight: 600; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
-        .child-list { list-style-type: none; padding: 0; margin: 0; }
-        .child-item { padding: 8px 0; font-size: 1rem; }
-        .child-item.checked { color: #e53e3e; text-decoration: line-through; }
-        .child-item.onetime { color: #d69e2e; }
-        .admin-view { display: none; }
-        .admin-form { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
-        .admin-form input, .admin-form select { padding: 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 1rem; }
-        .admin-form button { background-color: #38a169; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; }
-        .admin-form button:hover { background-color: #2f855a; }
-        .status-message { text-align: center; font-style: italic; color: #555; margin-top: 10px; }
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); justify-content: center; align-items: center; }
-        .modal-content { background-color: #fefefe; margin: auto; padding: 20px; border: 1px solid #888; width: 80%; border-radius: 8px; }
-        .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
-        .close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abholsystem – Tagesansicht</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<style>
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f0f4f8;color:#1a202c}
+  .wrap{max-width:700px;margin:0 auto;padding:16px}
+  h1{margin:12px 0;text-align:center;font-size:22px}
+  .row{display:flex;gap:8px;justify-content:center;margin:8px 0}
+  button{padding:10px 14px;border:0;border-radius:10px;background:#4299e1;color:#fff;cursor:pointer}
+  button.secondary{background:#64748b}
+  ul{list-style:none;padding:0;margin:12px 0}
+  li{background:#fff;margin:8px 0;padding:14px 12px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .name{font-weight:600}
+  .muted{color:#667085}
+  .pill{padding:4px 8px;border-radius:999px;background:#eef;border:1px solid #dde;font-variant-numeric:tabular-nums}
+  .strike{text-decoration:line-through;color:#9aa1a9}
+  .onetime .pill{background:#fff7e0;border-color:#f6cf7a}
+  /* Modal */
+  .modal{display:none;position:fixed;z-index:1000;inset:0;background:rgba(0,0,0,.4);justify-content:center;align-items:center}
+  .modal .box{background:#fff;padding:16px;border-radius:10px;width:min(92vw,520px)}
+  .days{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px}
+  .days button{background:#e2e8f0;color:#334155}
+  .days button.active{background:#38a169;color:#fff}
+  /* Admin */
+  .admin{display:none}
+  .card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,.06);margin:10px 0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  input,select{padding:10px;border:1px solid #cbd5e0;border-radius:8px}
+  #info{text-align:center;margin-top:6px;color:#475569}
+</style>
 </head>
 <body>
+<div class="wrap">
+  <h1 id="title">Tagesansicht</h1>
+  <div class="row">
+    <button id="chooseDayBtn" class="secondary">Wochentag wählen</button>
+    <button id="refreshBtn" class="secondary">Aktualisieren</button>
+    <button id="adminBtn">Admin</button>
+  </div>
+  <div id="info">Lade…</div>
+  <ul id="list"></ul>
 
-<div class="container" id="day-view">
-    <div class="header">
-        <h1 id="current-day-display"></h1>
-        <button onclick="showDaySelector()">Anderer Wochentag</button>
+  <div id="admin" class="admin">
+    <div class="card">
+      <h3>Basis-Abholzeit ändern</h3>
+      <div class="grid">
+        <select id="admChild"></select>
+        <select id="admDay">
+          <option>Montag</option><option>Dienstag</option><option>Mittwoch</option><option>Donnerstag</option><option>Freitag</option>
+        </select>
+      </div>
+      <div class="grid">
+        <input id="admTime" type="time">
+        <button id="admSave">Speichern</button>
+      </div>
     </div>
-    <div id="time-slots"></div>
+    <div class="card">
+      <h3>Einmalige Zeit für Datum</h3>
+      <div class="grid">
+        <select id="otChild"></select>
+        <input id="otDate" type="date">
+      </div>
+      <div class="grid">
+        <input id="otTime" type="time">
+        <button id="otSave">Speichern</button>
+      </div>
+    </div>
+    <div id="adminInfo" class="muted"></div>
+  </div>
 </div>
 
-<div class="container admin-view" id="admin-view">
-    <div class="header">
-        <h1>Admin Bereich</h1>
-        <button onclick="showMainView()">Zurück zur Tagesansicht</button>
-    </div>
-    <div class="admin-form">
-        <h2>Abholzeit ändern</h2>
-        <select id="admin-child-select"></select>
-        <select id="admin-day-select"></select>
-        <input type="time" id="admin-time-input">
-        <button onclick="saveAdminChange()">Speichern</button>
-    </div>
-    <div class="admin-form">
-        <h2>Einmalige Änderung</h2>
-        <p>Ändert die Abholzeit nur für ein bestimmtes Datum.</p>
-        <select id="onetime-child-select"></select>
-        <input type="date" id="onetime-date-input">
-        <input type="time" id="onetime-time-input">
-        <button onclick="saveOnetimeChange()">Speichern</button>
-    </div>
-</div>
-
-<div id="day-selector-modal" class="modal">
-    <div class="modal-content">
-        <span class="close-button" onclick="closeDaySelector()">&times;</span>
-        <h2>Wochentag auswählen</h2>
-        <div class="day-buttons" id="day-buttons-container"></div>
-    </div>
-</div>
-
-<div id="status-message"></div>
+<!-- Day selector -->
+<div id="dayModal" class="modal"><div class="box">
+  <h3>Wochentag auswählen</h3>
+  <div id="dayBtns" class="days"></div>
+  <div class="row" style="margin-top:14px"><button id="closeDay" class="secondary">Schließen</button></div>
+</div></div>
 
 <script>
-    // Firebase Konfiguration
-    const firebaseConfig = {
-        apiKey: "AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
-        databaseURL: "https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
-    };
+  // Firebase
+  const firebaseConfig = {
+    apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
+    databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
 
-    // Firebase initialisieren
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
+  // Helpers
+  const WEEK=["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+  const SCHOOL=["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
+  const qs = s=>document.querySelector(s);
+  const qsa = s=>Array.from(document.querySelectorAll(s));
 
-    // Globale Variablen für Daten und Wochentage
-    const weekdays = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
-    let abholzeitenData = {};
-    let checkedChildrenData = {};
-    let onetimeChangesData = {};
-    let allChildrenNames = new Set();
-    let currentDayIndex = new Date().getDay();
+  function nowBerlin(){ return new Date(new Date().toLocaleString('de-DE',{timeZone:'Europe/Berlin'})); }
+  function todayName(){ return WEEK[nowBerlin().getDay()]; }
+  function dateKey(d=new Date()){ const x=nowBerlin(); if(d!==undefined&&d instanceof Date){}; const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,'0'), da=String(x.getDate()).padStart(2,'0'); return `${y}-${m}-${da}`; }
+  function parseHHMM(s){ if(!s||!/^\d{2}:\d{2}$/.test(s)) return null; const [h,m]=s.split(':').map(Number); return h*60+m; }
+  function nowMinutes(){ const n=nowBerlin(); return n.getHours()*60+n.getMinutes(); }
 
-    // DOM-Elemente
-    const timeSlotsContainer = document.getElementById('time-slots');
-    const currentDayDisplay = document.getElementById('current-day-display');
-    const statusMessage = document.getElementById('status-message');
-    const daySelectorModal = document.getElementById('day-selector-modal');
-    const dayButtonsContainer = document.getElementById('day-buttons-container');
-    const mainView = document.getElementById('day-view');
-    const adminView = document.getElementById('admin-view');
+  // State
+  let currentDay = todayName();
+  let allChildren = new Set();
 
-    // Admin-Formular-Elemente
-    const adminChildSelect = document.getElementById('admin-child-select');
-    const adminDaySelect = document.getElementById('admin-day-select');
-    const adminTimeInput = document.getElementById('admin-time-input');
-    const onetimeChildSelect = document.getElementById('onetime-child-select');
-    const onetimeDateInput = document.getElementById('onetime-date-input');
-    const onetimeTimeInput = document.getElementById('onetime-time-input');
+  // URL-params
+  const params = new URLSearchParams(location.search);
+  const linkChild = params.get('child');
+  const isAdmin = params.get('admin') === '1';
 
-    // Initiales Laden der Daten
-    async function loadData() {
-        statusMessage.textContent = 'Lade Daten...';
-        console.log('Starte Ladevorgang...');
-        showView('children-view');
-        
-        try {
-            const snapshot = await database.ref().once('value');
-            const data = snapshot.val() || {};
-            abholzeitenData = data.abholzeiten || {};
-            checkedChildrenData = data.checked || {};
-            onetimeChangesData = data.onetime || {};
-            
-            extractAllChildren();
-            renderAdminForms();
-            renderDayView(weekdays[currentDayIndex]);
-            statusMessage.textContent = 'Daten geladen.';
-            console.log('Ladevorgang erfolgreich abgeschlossen.');
-        } catch (error) {
-            statusMessage.textContent = `Verbindungsfehler: ${error.message}. Bitte überprüfen Sie Ihre API-Schlüssel und die Datenbank-URL in der Firebase-Konsole.`;
-            console.error('Ladefehler:', error);
-            // Bei einem Verbindungsfehler die Ansicht nicht umschalten
-            showView('children-view');
-            childrenList.innerHTML = '<li>Fehler beim Laden der Kinderliste.</li>';
-        }
+  // DOM
+  const titleEl = qs('#title'), infoEl = qs('#info'), listEl = qs('#list');
+  const adminEl = qs('#admin'), adminInfo = qs('#adminInfo');
+
+  qs('#refreshBtn').onclick = ()=>loadDay();
+  qs('#adminBtn').onclick = ()=>adminEl.style.display = adminEl.style.display==='block'?'none':'block';
+  qs('#chooseDayBtn').onclick = ()=>openDayModal();
+  qs('#closeDay').onclick = ()=>qs('#dayModal').style.display='none';
+
+  // Build day buttons
+  function openDayModal(){
+    const box = qs('#dayBtns'); box.innerHTML='';
+    SCHOOL.forEach(d=>{
+      const b=document.createElement('button');
+      b.textContent=d; if(d===currentDay) b.classList.add('active');
+      b.onclick=()=>{ currentDay=d; qs('#dayModal').style.display='none'; loadDay(); };
+      box.appendChild(b);
+    });
+    qs('#dayModal').style.display='flex';
+  }
+
+  // Load and render
+  async function loadDay(){
+    titleEl.textContent = `Heute: ${currentDay}`;
+    if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; listEl.innerHTML=''; return; }
+    infoEl.textContent='Lade…'; listEl.innerHTML='';
+
+    try{
+      const [timesSnap, statusSnap, onetimeSnap] = await Promise.all([
+        db.ref(currentDay).once('value'),
+        db.ref(`abmeldungen/${dateKey()}`).once('value'),
+        db.ref(`onetime/${dateKey()}`).once('value')
+      ]);
+      const times = timesSnap.val() || {};
+      const status = statusSnap.val() || {};
+      const onetime = onetimeSnap.val() || {};
+
+      // collect children for admin selects
+      allChildren = new Set(Object.keys(times));
+      renderAdminSelects();
+
+      // optional: handle special link auto-check
+      if (linkChild) await tryAutoCheckout(times, status);
+
+      // re-read status if changed
+      const status2 = (await db.ref(`abmeldungen/${dateKey()}`).once('value')).val() || {};
+
+      // build list with onetime override
+      const rows = Object.entries(times).map(([name, baseTime])=>{
+        const ot = onetime[name] || null; // one-time for today if exists
+        const finalTime = ot || baseTime || null;
+        return {name, baseTime, finalTime, isOnetime: !!ot};
+      });
+
+      // sort by finalTime then name
+      rows.sort((a,b)=>{
+        const am=parseHHMM(a.finalTime), bm=parseHHMM(b.finalTime);
+        if(am===null && bm===null) return a.name.localeCompare(b.name,'de');
+        if(am===null) return 1;
+        if(bm===null) return -1;
+        return am-bm;
+      });
+
+      rows.forEach(r=>{
+        const li=document.createElement('li');
+        if (status2[r.name]) li.classList.add('strike');
+        if (r.isOnetime) li.classList.add('onetime');
+
+        const left=document.createElement('div');
+        left.innerHTML=`<div class="name">${r.name}</div><div class="muted">${r.isOnetime?'Einmalig für heute':'Basiszeit'}</div>`;
+        const right=document.createElement('div');
+        right.innerHTML=`<span class="pill">${r.finalTime || '–'}</span>`;
+
+        li.appendChild(left); li.appendChild(right);
+        listEl.appendChild(li);
+      });
+
+      infoEl.textContent='Fertig.';
+    }catch(e){
+      console.error(e);
+      infoEl.textContent='Fehler beim Laden. Regeln/Verbindung prüfen.';
     }
+  }
 
-    // Extrahieren aller Kindesnamen aus den Daten
-    function extractAllChildren() {
-        allChildrenNames = new Set();
-        for (const day in abholzeitenData) {
-            for (const name in abholzeitenData[day]) {
-                allChildrenNames.add(name);
-            }
-        }
+  async function tryAutoCheckout(times, status){
+    const name = linkChild;
+    const setRef = db.ref(`abmeldungen/${dateKey()}/${name}`);
+    if (status && status[name]){ infoEl.textContent = `${name}: bereits abgemeldet.`; return; }
+    const t = String(times?.[name] || '');
+    if (!t){ infoEl.textContent = `Unbekanntes Kind: ${name}`; return; }
+    const target = parseHHMM(t);
+    const allowedFrom = target!==null ? target-5 : null;
+    if (isAdmin || allowedFrom===null || nowMinutes()>=allowedFrom){
+      try { await setRef.set(true); infoEl.textContent=`${name}: abgemeldet.`; }
+      catch(e){ infoEl.textContent=`${name}: Abmeldung fehlgeschlagen.`; }
+    } else {
+      const wait = Math.max(0, allowedFrom - nowMinutes());
+      infoEl.textContent = `${name}: bitte noch ${wait} Min warten.`;
     }
+  }
 
-    // Rendert die Tagesansicht
-    function renderDayView(day) {
-        currentDayDisplay.textContent = day;
-        timeSlotsContainer.innerHTML = '';
-        const dayData = abholzeitenData[day] || {};
-        const onetimeData = onetimeChangesData[day] || {};
+  function renderAdminSelects(){
+    const opts = Array.from(allChildren).sort().map(n=>`<option>${n}</option>`).join('');
+    qs('#admChild').innerHTML = opts;
+    qs('#otChild').innerHTML  = opts;
+  }
 
-        const groupedTimes = {};
-        for (const name in dayData) {
-            const time = dayData[name];
-            if (!groupedTimes[time]) {
-                groupedTimes[time] = [];
-            }
-            groupedTimes[time].push(name);
-        }
+  // Admin actions
+  qs('#admSave').onclick = async ()=>{
+    const name = qs('#admChild').value;
+    const day  = qs('#admDay').value;
+    const time = qs('#admTime').value;
+    if(!name||!day||!time){ adminInfo.textContent='Bitte alle Felder füllen.'; return; }
+    adminInfo.textContent='Speichere…';
+    try{
+      await db.ref(`${day}/${name}`).set(time);
+      adminInfo.textContent='Basiszeit gespeichert.'; if(day===currentDay) loadDay();
+    }catch(e){ adminInfo.textContent='Fehler beim Speichern.'; }
+  };
 
-        const sortedTimes = Object.keys(groupedTimes).sort();
+  qs('#otSave').onclick = async ()=>{
+    const name = qs('#otChild').value;
+    const date = qs('#otDate').value;
+    const time = qs('#otTime').value;
+    if(!name||!date||!time){ adminInfo.textContent='Bitte alle Felder füllen.'; return; }
+    adminInfo.textContent='Speichere…';
+    try{
+      await db.ref(`onetime/${date}/${name}`).set(time);
+      // nur wenn onetime für HEUTE gesetzt wurde, direkt sichtbar
+      if (date === dateKey()) await loadDay();
+      adminInfo.textContent='Einmalige Zeit gespeichert.';
+    }catch(e){ adminInfo.textContent='Fehler beim Speichern.'; }
+  };
 
-        sortedTimes.forEach(time => {
-            const slotDiv = document.createElement('div');
-            slotDiv.className = 'time-slot';
-            slotDiv.innerHTML = `<div class="time-slot-header">${time} Uhr</div><ul class="child-list"></ul>`;
-            const childList = slotDiv.querySelector('.child-list');
-
-            groupedTimes[time].sort().forEach(name => {
-                const li = document.createElement('li');
-                li.className = 'child-item';
-                li.textContent = name;
-
-                const isChecked = checkedChildrenData[day] && checkedChildrenData[day][name];
-                const isOnetime = onetimeChangesData[day] && onetimeChangesData[day][name];
-
-                if (isChecked) {
-                    li.classList.add('checked');
-                } else if (isOnetime) {
-                    li.classList.add('onetime');
-                }
-                
-                childList.appendChild(li);
-            });
-            timeSlotsContainer.appendChild(slotDiv);
-        });
-    }
-
-    // Funktion zur Umschaltung der Ansichten
-    function showMainView() {
-        renderDayView(weekdays[currentDayIndex]);
-        mainView.style.display = 'block';
-        adminView.style.display = 'none';
-    }
-
-    // Zeigt den Wochentags-Auswähler an
-    function showDaySelector() {
-        dayButtonsContainer.innerHTML = '';
-        weekdays.forEach((day, index) => {
-            if (index > 0 && index < 6) { // Nur Montag bis Freitag anzeigen
-                const button = document.createElement('button');
-                button.textContent = day;
-                if (index === currentDayIndex) {
-                    button.classList.add('active');
-                }
-                button.onclick = () => {
-                    currentDayIndex = index;
-                    renderDayView(weekdays[currentDayIndex]);
-                    closeDaySelector();
-                };
-                dayButtonsContainer.appendChild(button);
-            }
-        });
-        daySelectorModal.style.display = 'flex';
-    }
-
-    function closeDaySelector() {
-        daySelectorModal.style.display = 'none';
-    }
-
-    // Initiales Rendern der Admin-Formulare
-    function renderAdminForms() {
-        const sortedChildren = Array.from(allChildrenNames).sort();
-
-        // Admin-Formular
-        adminChildSelect.innerHTML = sortedChildren.map(name => `<option>${name}</option>`).join('');
-        adminDaySelect.innerHTML = weekdays.slice(1, 6).map(day => `<option>${day}</option>`).join('');
-
-        // Einmalige-Änderung-Formular
-        onetimeChildSelect.innerHTML = sortedChildren.map(name => `<option>${name}</option>`).join('');
-    }
-
-    // Speichern der Admin-Änderung
-    async function saveAdminChange() {
-        const name = adminChildSelect.value;
-        const day = adminDaySelect.value;
-        const time = adminTimeInput.value;
-        if (!name || !day || !time) {
-            statusMessage.textContent = 'Bitte füllen Sie alle Felder aus.';
-            return;
-        }
-
-        statusMessage.textContent = 'Speichere...';
-        try {
-            await database.ref(`abholzeiten/${day}/${name}`).set(time);
-            statusMessage.textContent = 'Änderung erfolgreich gespeichert!';
-            loadData();
-        } catch (error) {
-            statusMessage.textContent = `Fehler beim Speichern: ${error.message}`;
-        }
-    }
-
-    // Speichern der einmaligen Änderung
-    async function saveOnetimeChange() {
-        const name = onetimeChildSelect.value;
-        const date = onetimeDateInput.value;
-        const time = onetimeTimeInput.value;
-        if (!name || !date || !time) {
-            statusMessage.textContent = 'Bitte füllen Sie alle Felder aus.';
-            return;
-        }
-
-        statusMessage.textContent = 'Speichere...';
-        const day = weekdays[new Date(date).getDay()];
-        if (!day) {
-            statusMessage.textContent = 'Ungültiges Datum.';
-            return;
-        }
-
-        try {
-            await database.ref(`onetime/${day}/${name}`).set(time);
-            statusMessage.textContent = 'Einmalige Änderung erfolgreich gespeichert!';
-            loadData();
-        } catch (error) {
-            statusMessage.textContent = `Fehler beim Speichern: ${error.message}`;
-        }
-    }
-
-    // Initiales Laden der App
-    document.addEventListener('DOMContentLoaded', loadData);
+  // Start
+  document.addEventListener('DOMContentLoaded', loadDay);
 </script>
-
 </body>
 </html>
