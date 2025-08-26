@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Abholsystem – Admin</title>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 <style>
   body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f0f4f8;color:#1a202c}
   .wrap{max-width:800px;margin:0 auto;padding:20px}
   h1{margin:10px 0;text-align:center}
-  h2{margin-top:24px;font-size:18px}
+  h2{margin-top:0;font-size:18px}
   .card{background:#fff;border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,.08)}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
   input,select{padding:10px;border:1px solid #cbd5e0;border-radius:8px;font-size:15px}
@@ -21,22 +21,42 @@
   ul{list-style:none;padding:0;margin:0}
   li{padding:6px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee}
   .muted{color:#64748b;font-size:14px}
+  .spacer{height:28px;background:#fff;border-radius:10px;margin:16px 0;box-shadow:0 1px 4px rgba(0,0,0,.04)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Admin – Abholsystem</h1>
 
-  <div class="card">
+  <!-- 1) Einmalige Zeit setzen -->
+  <div class="card" id="onetime-card">
+    <h2>Einmalige Zeit setzen</h2>
+    <div class="grid">
+      <select id="otChild"></select>
+      <input id="otDate" type="date">
+    </div>
+    <div class="grid">
+      <input id="otTime" type="time">
+      <button id="otSave">Speichern</button>
+    </div>
+    <div class="muted">Gilt nur für das ausgewählte Datum. Überschreibt an diesem Tag die Basiszeit.</div>
+  </div>
+
+  <!-- Weißer Abstand -->
+  <div class="spacer" aria-hidden="true"></div>
+
+  <!-- 2) Kind hinzufügen -->
+  <div class="card" id="add-card">
     <h2>Kind hinzufügen</h2>
     <div class="grid">
       <input id="newChild" placeholder="Name des Kindes">
       <button id="addChildBtn">Hinzufügen</button>
     </div>
-    <div class="muted">Hinweis: Name exakt so wie im Link verwenden (Groß-/Kleinschreibung beachten).</div>
+    <div class="muted">Name exakt wie im Link verwenden (Groß-/Kleinschreibung beachten).</div>
   </div>
 
-  <div class="card">
+  <!-- 3) Basis-Abholzeit ändern -->
+  <div class="card" id="base-card">
     <h2>Basis-Abholzeit ändern</h2>
     <div class="grid">
       <select id="admChild"></select>
@@ -51,19 +71,8 @@
     </div>
   </div>
 
-  <div class="card">
-    <h2>Einmalige Zeit setzen</h2>
-    <div class="grid">
-      <select id="otChild"></select>
-      <input id="otDate" type="date">
-    </div>
-    <div class="grid">
-      <input id="otTime" type="time">
-      <button id="otSave">Speichern</button>
-    </div>
-  </div>
-
-  <div class="card">
+  <!-- 4) Kinder löschen -->
+  <div class="card" id="delete-card">
     <h2>Kinder löschen</h2>
     <ul id="childList"></ul>
   </div>
@@ -72,6 +81,7 @@
 </div>
 
 <script>
+  // Firebase
   const firebaseConfig = {
     apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
     databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
@@ -79,7 +89,11 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
+  // Helpers
   const qs = s=>document.querySelector(s);
+  const DAYS = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
+
+  // DOM refs
   const admChild=qs('#admChild'), admDay=qs('#admDay'), admTime=qs('#admTime');
   const otChild=qs('#otChild'), otDate=qs('#otDate'), otTime=qs('#otTime');
   const childList=qs('#childList'), info=qs('#adminInfo');
@@ -91,12 +105,15 @@
     const snap=await db.ref().once('value');
     const data=snap.val()||{};
     const set=new Set();
-    ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"].forEach(d=>{
-      if(data[d]) Object.keys(data[d]).forEach(n=>set.add(n));
+    DAYS.forEach(d=>{
+      if(data[d] && typeof data[d]==='object'){
+        Object.keys(data[d]).forEach(n=>set.add(n));
+      }
     });
     allChildren=set;
     renderChildSelects();
     renderChildList();
+    childList.previousElementSibling && (childList.previousElementSibling.textContent = "Kinder löschen");
   }
 
   function renderChildSelects(){
@@ -119,13 +136,18 @@
     });
   }
 
+  // Aktionen
   qs('#addChildBtn').onclick=async()=>{
     const name=qs('#newChild').value.trim();
     if(!name){info.textContent='Bitte Namen eingeben.';return;}
+    // verbotene Zeichen prüfen
+    if (/[.\$\#\[\]\/]/.test(name)){ info.textContent='Ungültige Zeichen im Namen (. $ # [ ] /)'; return; }
     info.textContent='Speichere…';
     try{
-      await Promise.all(["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]
-        .map(day=>db.ref(`${day}/${name}`).set("")));
+      // Legt das Kind auf allen Tagen mit leerer Zeit an
+      const updates={};
+      DAYS.forEach(day=>{ updates[`${day}/${name}`] = ""; });
+      await db.ref().update(updates);
       info.textContent='Kind hinzugefügt.';
       qs('#newChild').value='';
       loadChildren();
@@ -153,9 +175,8 @@
     info.textContent='Lösche…';
     try{
       const updates={};
-      ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"].forEach(day=>{
-        updates[`${day}/${name}`]=null;
-      });
+      DAYS.forEach(day=>{ updates[`${day}/${name}`]=null; });
+      // optional: zugehörige onetime/abmeldungen NICHT antasten
       await db.ref().update(updates);
       info.textContent='Kind gelöscht.';
       loadChildren();
