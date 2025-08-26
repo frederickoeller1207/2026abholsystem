@@ -19,7 +19,7 @@
   .dow{color:var(--muted);text-align:center;font-size:12px;padding:6px 0}
   .cell{background:var(--card);border-radius:14px;min-height:110px;padding:8px;display:flex;flex-direction:column}
   .day{font-size:12px;color:var(--muted)}
-  .day.muted{opacity:.6}
+  .day.muted{opacity:.55}
   .names{margin-top:6px;font-size:12px;line-height:1.25;white-space:pre-wrap}
   .legend{margin:10px 0;color:var(--muted);font-size:12px}
   #status{margin-top:8px;color:var(--muted);font-size:12px;text-align:center}
@@ -57,121 +57,127 @@
   // Konstanten
   const SCHOOL = new Set(["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]);
   const MIN_DATE = "2025-08-27"; // ab diesem Datum zählen
-
-  // TZ-Helper Europe/Berlin
-  const tz = { timeZone:"Europe/Berlin" };
-  function dTZ(d){ return new Date(new Date(d).toLocaleString("de-DE", tz)); }
-  function isoDate(d){ const x=dTZ(d); const y=x.getFullYear(), m=String(x.getMonth()+1).padStart(2,"0"), da=String(x.getDate()).padStart(2,"0"); return `${y}-${m}-${da}`; }
-  function monthLabel(d){ return dTZ(d).toLocaleDateString("de-DE", { ...tz, month:"long", year:"numeric" }); }
-  function dowMonFirst(d){ const js=dTZ(d).getDay(); return (js+6)%7; } // 0=Mo … 6=So
-  function addDays(d,n){ const x=dTZ(d); x.setDate(x.getDate()+n); return x; }
   const DOW_SHORT = ["Mo","Di","Mi","Do","Fr","Sa","So"];
-  const DOW_NAME  = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+  const DOW_NAME  = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+
+  // Helper
+  const pad2 = n => String(n).padStart(2,"0");
+  const monthLabel = (y,m1) =>
+    new Intl.DateTimeFormat("de-DE",{month:"long",year:"numeric"}).format(new Date(y,m1-1,1)).replace(/^./,c=>c.toUpperCase());
+  const mondayOffset = (y,m1) => ((new Date(y,m1-1,1).getDay()+6)%7); // 0=Mo..6=So
+  const daysInMonth  = (y,m1) => new Date(y,m1,0).getDate();          // m1=1..12
 
   // DOM
-  const monthTitle = document.getElementById("monthTitle");
-  const gridHeader = document.getElementById("gridHeader");
-  const grid       = document.getElementById("grid");
-  const statusEl   = document.getElementById("status");
-  document.getElementById("prevBtn").onclick = ()=>shiftMonth(-1);
-  document.getElementById("nextBtn").onclick = ()=>shiftMonth(1);
+  const titleEl = document.getElementById("monthTitle");
+  const grid    = document.getElementById("grid");
+  const gridHdr = document.getElementById("gridHeader");
+  const statusEl= document.getElementById("status");
+  document.getElementById("prevBtn").onclick = () => shiftMonth(-1);
+  document.getElementById("nextBtn").onclick = () => shiftMonth(1);
 
-  // Kopfzeile (Mo–So)
-  (function renderDowHeader(){
-    gridHeader.innerHTML = "";
+  // Header Mo–So
+  (function renderHeader(){
+    gridHdr.innerHTML="";
     DOW_SHORT.forEach(s=>{
       const el=document.createElement("div");
       el.className="dow";
       el.textContent=s;
-      gridHeader.appendChild(el);
+      gridHdr.appendChild(el);
     });
   })();
 
-  // Roster-Cache (Basisplan; leere Zeiten ignorieren)
-  let ROSTER = {}; // { Montag:Set(names), ... }
+  // Roster cache
+  let ROSTER={}; // { Montag:Set(names), ... }
   async function loadRoster(){
-    const out = {};
-    for (const day of ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]){
-      const v = (await db.ref(day).once("value")).val() || {};
-      out[day] = new Set(
-        Object.entries(v)
-          .filter(([_,t]) => String(t).trim() !== "")
-          .map(([n]) => n)
-      );
+    const out={};
+    for(const day of ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"]){
+      const v=(await db.ref(day).once("value")).val()||{};
+      out[day]=new Set(Object.entries(v).filter(([_,t])=>String(t).trim()!=="").map(([n])=>n));
     }
-    ROSTER = out;
+    ROSTER=out;
   }
 
-  // Monats-State
-  let cur = dTZ(new Date());            // heute
-  cur.setDate(1);                       // auf den 1. des Monats
+  // Monats-State: aktueller Monat beim Start
+  const now = new Date();
+  let curY = now.getFullYear();
+  let curM = now.getMonth()+1; // 1..12
 
   function shiftMonth(delta){
-    cur = dTZ(new Date(cur.getFullYear(), cur.getMonth() + delta, 1));
+    curM += delta;
+    while(curM<1){ curM+=12; curY--; }
+    while(curM>12){ curM-=12; curY++; }
     renderMonth();
   }
 
   async function renderMonth(){
-    statusEl.textContent = "Lade…";
-    if (!Object.keys(ROSTER).length) await loadRoster();
+    statusEl.textContent="Lade…";
+    if(!Object.keys(ROSTER).length) await loadRoster();
 
-    monthTitle.textContent = capitalize(monthLabel(cur));
+    titleEl.textContent = monthLabel(curY,curM);
 
-    // 6 × 7 Raster
-    grid.innerHTML = "";
-    const lead = dowMonFirst(cur);                           // Anzahl Felder vor dem 1.
-    const daysInMonth = new Date(cur.getFullYear(), cur.getMonth()+1, 0).getDate();
-    const firstCellDate = addDays(cur, -lead);
+    const lead = mondayOffset(curY,curM);
+    const dim  = daysInMonth(curY,curM);
 
-    // Vorab alle Abmeldungen des Monats abrufen (eine Anfrage pro Tag ist auch ok; hier simpel pro Tag)
-    const absentCache = {};
+    grid.innerHTML="";
+    // 6×7 Zellen
+    for(let i=0;i<42;i++){
+      // Mapping i -> y,m,d
+      let dnum = i - lead + 1;
+      let y = curY, m = curM, d;
 
-    // Zellen bauen
-    for (let i=0; i<42; i++){
-      const dayDate = addDays(firstCellDate, i);
-      const key = isoDate(dayDate);
-      const inMonth = (dayDate.getMonth() === cur.getMonth());
-      const idx = dowMonFirst(dayDate);                 // 0..6
-      const dayName = DOW_NAME[idx];
+      if(dnum < 1){
+        // vorheriger Monat
+        let pm = m-1, py=y;
+        if(pm<1){ pm=12; py--; }
+        const pdim = daysInMonth(py,pm);
+        d = pdim + dnum;
+        y = py; m = pm;
+      } else if(dnum > dim){
+        // nächster Monat
+        let nm = m+1, ny=y;
+        if(nm>12){ nm=1; ny++; }
+        d = dnum - dim;
+        y = ny; m = nm;
+      } else {
+        d = dnum; // im aktuellen Monat
+      }
 
-      const cell = document.createElement("div");
-      cell.className = "cell";
+      const key = `${y}-${pad2(m)}-${pad2(d)}`;
+      const jsDow = new Date(y, m-1, d).getDay(); // 0=So..6=Sa
+      const dowName = DOW_NAME[jsDow];
+      const inCurrent = (m===curM);
 
-      const dayLabel = document.createElement("div");
-      dayLabel.className = "day" + (inMonth ? "" : " muted");
-      dayLabel.textContent = String(dayDate.getDate());
-      cell.appendChild(dayLabel);
-
-      const namesDiv = document.createElement("div");
-      namesDiv.className = "names";
+      // Zelle
+      const cell=document.createElement("div");
+      cell.className="cell";
+      const dayLbl=document.createElement("div");
+      dayLbl.className = "day" + (inCurrent ? "" : " muted");
+      dayLbl.textContent = String(d);
+      const namesDiv=document.createElement("div");
+      namesDiv.className="names";
+      cell.appendChild(dayLbl);
       cell.appendChild(namesDiv);
-
       grid.appendChild(cell);
 
-      // Nur Werktage im aktuellen/anderen Monat anzeigen; vor MIN_DATE keine Namen
-      if (!SCHOOL.has(dayName) || key < MIN_DATE) continue;
+      // Nur Werktage und ab Mindestdatum
+      if(!SCHOOL.has(dowName) || key < MIN_DATE) continue;
 
       // Erwartete Kinder
-      const roster = Array.from(ROSTER[dayName] || []);
-      if (!roster.length) continue;
+      const roster = Array.from(ROSTER[dowName]||[]);
+      if(!roster.length) continue;
 
-      // Abmeldungen laden und Abwesende eintragen
       try{
-        if (!(key in absentCache)){
-          const snap = await db.ref(`abmeldungen/${key}`).once("value");
-          const checked = new Set(Object.keys(snap.val() || {}));
-          const absent  = roster.filter(n => !checked.has(n));
-          absentCache[key] = absent;
-        }
-        namesDiv.textContent = absentCache[key].join("\n");
-      }catch(e){
+        const snap = await db.ref(`abmeldungen/${key}`).once("value");
+        const checked = new Set(Object.keys(snap.val()||{}));
+        const absent  = roster.filter(n=>!checked.has(n));
+        namesDiv.textContent = absent.join("\n");
+      }catch{
         namesDiv.textContent = "";
       }
     }
-    statusEl.textContent = "Fertig.";
-  }
 
-  function capitalize(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
+    statusEl.textContent="Fertig.";
+  }
 
   document.addEventListener("DOMContentLoaded", renderMonth);
 </script>
