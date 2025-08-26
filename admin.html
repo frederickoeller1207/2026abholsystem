@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Abholsystem – Admin</title>
-<script src="="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 <style>
   body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f0f4f8;color:#1a202c}
@@ -81,7 +81,6 @@
 </div>
 
 <script>
-  // Firebase
   const firebaseConfig = {
     apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
     databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
@@ -89,11 +88,9 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
 
-  // Helpers
   const qs = s=>document.querySelector(s);
   const DAYS = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
 
-  // DOM refs
   const admChild=qs('#admChild'), admDay=qs('#admDay'), admTime=qs('#admTime');
   const otChild=qs('#otChild'), otDate=qs('#otDate'), otTime=qs('#otTime');
   const childList=qs('#childList'), info=qs('#adminInfo');
@@ -113,7 +110,6 @@
     allChildren=set;
     renderChildSelects();
     renderChildList();
-    childList.previousElementSibling && (childList.previousElementSibling.textContent = "Kinder löschen");
   }
 
   function renderChildSelects(){
@@ -136,15 +132,13 @@
     });
   }
 
-  // Aktionen
+  // Kind hinzufügen (legt leere Zeiten auf allen Tagen an)
   qs('#addChildBtn').onclick=async()=>{
     const name=qs('#newChild').value.trim();
     if(!name){info.textContent='Bitte Namen eingeben.';return;}
-    // verbotene Zeichen prüfen
     if (/[.\$\#\[\]\/]/.test(name)){ info.textContent='Ungültige Zeichen im Namen (. $ # [ ] /)'; return; }
     info.textContent='Speichere…';
     try{
-      // Legt das Kind auf allen Tagen mit leerer Zeit an
       const updates={};
       DAYS.forEach(day=>{ updates[`${day}/${name}`] = ""; });
       await db.ref().update(updates);
@@ -154,6 +148,7 @@
     }catch(e){info.textContent='Fehler beim Hinzufügen.';}
   };
 
+  // Basiszeit setzen
   qs('#admSave').onclick=async()=>{
     const name=admChild.value, day=admDay.value, time=admTime.value;
     if(!name||!day||!time){info.textContent='Bitte alle Felder füllen.';return;}
@@ -162,6 +157,7 @@
     catch(e){info.textContent='Fehler beim Speichern.';}
   };
 
+  // Einmalige Zeit setzen
   qs('#otSave').onclick=async()=>{
     const name=otChild.value, date=otDate.value, time=otTime.value;
     if(!name||!date||!time){info.textContent='Bitte alle Felder füllen.';return;}
@@ -170,13 +166,13 @@
     catch(e){info.textContent='Fehler beim Speichern.';}
   };
 
+  // Kind löschen (nur aus den Wochentagen)
   async function deleteChild(name){
     if(!confirm(`„${name}“ wirklich löschen?`)) return;
     info.textContent='Lösche…';
     try{
       const updates={};
       DAYS.forEach(day=>{ updates[`${day}/${name}`]=null; });
-      // optional: zugehörige onetime/abmeldungen NICHT antasten
       await db.ref().update(updates);
       info.textContent='Kind gelöscht.';
       loadChildren();
