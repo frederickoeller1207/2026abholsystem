@@ -1,186 +1,285 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Abholzeiten – Tagesansicht</title>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-<style>
-  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f6f7f9}
-  .wrap{max-width:720px;margin:0 auto;padding:16px}
-  h1{margin:12px 0;text-align:center;font-size:22px}
-  #info{margin:8px 0;text-align:center;color:#555}
-  ul{list-style:none;padding:0;margin:12px 0}
-  li{background:#fff;margin:8px 0;padding:14px 12px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-  .name{font-weight:600}
-  .muted{color:#777}
-  .strike{text-decoration:line-through;color:#999}
-  .pill{padding:4px 8px;border-radius:999px;background:#eef;border:1px solid #dde;font-variant-numeric:tabular-nums}
-  .row{display:flex;gap:8px;justify-content:center;margin-top:10px}
-  button{padding:8px 12px;border:0;border-radius:8px;background:#2e7d32;color:#fff;cursor:pointer}
-  button.secondary{background:#607d8b}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abholsystem</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: #f0f4f8; color: #1a202c; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
+        .container { width: 100%; max-width: 600px; padding: 16px; box-sizing: border-box; }
+        .header { text-align: center; margin-bottom: 24px; }
+        h1 { font-size: 2rem; font-weight: 700; color: #2d3748; }
+        .nav-buttons { display: flex; justify-content: center; margin-bottom: 16px; }
+        .nav-buttons button { background-color: #4299e1; color: white; border: none; padding: 12px 24px; border-radius: 9999px; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; }
+        .nav-buttons button:hover { background-color: #3182ce; }
+        .day-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+        .day-buttons button { background-color: #e2e8f0; color: #4a5568; border: none; padding: 8px 16px; border-radius: 9999px; cursor: pointer; transition: background-color 0.2s; }
+        .day-buttons button.active { background-color: #38a169; color: white; }
+        .time-slot { background-color: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 16px; margin-bottom: 16px; }
+        .time-slot-header { font-size: 1.25rem; font-weight: 600; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+        .child-list { list-style-type: none; padding: 0; margin: 0; }
+        .child-item { padding: 8px 0; font-size: 1rem; }
+        .child-item.checked { color: #e53e3e; text-decoration: line-through; }
+        .child-item.onetime { color: #d69e2e; }
+        .admin-view { display: none; }
+        .admin-form { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+        .admin-form input, .admin-form select { padding: 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 1rem; }
+        .admin-form button { background-color: #38a169; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; }
+        .admin-form button:hover { background-color: #2f855a; }
+        .status-message { text-align: center; font-style: italic; color: #555; margin-top: 10px; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); justify-content: center; align-items: center; }
+        .modal-content { background-color: #fefefe; margin: auto; padding: 20px; border: 1px solid #888; width: 80%; border-radius: 8px; }
+        .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
+        .close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
+    </style>
 </head>
 <body>
-<div class="wrap">
-  <h1 id="title">Tagesansicht</h1>
-  <div id="info">Lade…</div>
-  <ul id="list"></ul>
-  <div class="row">
-    <button id="refreshBtn" class="secondary">Aktualisieren</button>
-  </div>
+
+<div class="container" id="day-view">
+    <div class="header">
+        <h1 id="current-day-display"></h1>
+        <button onclick="showDaySelector()">Anderer Wochentag</button>
+    </div>
+    <div id="time-slots"></div>
 </div>
 
+<div class="container admin-view" id="admin-view">
+    <div class="header">
+        <h1>Admin Bereich</h1>
+        <button onclick="showMainView()">Zurück zur Tagesansicht</button>
+    </div>
+    <div class="admin-form">
+        <h2>Abholzeit ändern</h2>
+        <select id="admin-child-select"></select>
+        <select id="admin-day-select"></select>
+        <input type="time" id="admin-time-input">
+        <button onclick="saveAdminChange()">Speichern</button>
+    </div>
+    <div class="admin-form">
+        <h2>Einmalige Änderung</h2>
+        <p>Ändert die Abholzeit nur für ein bestimmtes Datum.</p>
+        <select id="onetime-child-select"></select>
+        <input type="date" id="onetime-date-input">
+        <input type="time" id="onetime-time-input">
+        <button onclick="saveOnetimeChange()">Speichern</button>
+    </div>
+</div>
+
+<div id="day-selector-modal" class="modal">
+    <div class="modal-content">
+        <span class="close-button" onclick="closeDaySelector()">&times;</span>
+        <h2>Wochentag auswählen</h2>
+        <div class="day-buttons" id="day-buttons-container"></div>
+    </div>
+</div>
+
+<div id="status-message"></div>
+
 <script>
-  // Firebase
-  const firebaseConfig = {
-    apiKey: "AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
-    databaseURL: "https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
+    // Firebase Konfiguration
+    const firebaseConfig = {
+        apiKey: "AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
+        databaseURL: "https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
+    };
 
-  // Konstanten
-  const WEEKDAYS = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
-  const WORKDAYS = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
+    // Firebase initialisieren
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
 
-  // DOM
-  const titleEl = document.getElementById('title');
-  const infoEl  = document.getElementById('info');
-  const listEl  = document.getElementById('list');
-  document.getElementById('refreshBtn').addEventListener('click', loadDay);
+    // Globale Variablen für Daten und Wochentage
+    const weekdays = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+    let abholzeitenData = {};
+    let checkedChildrenData = {};
+    let onetimeChangesData = {};
+    let allChildrenNames = new Set();
+    let currentDayIndex = new Date().getDay();
 
-  // Helper: Datum/Zeiten in Europe/Berlin
-  function nowBerlin() {
-    return new Date(new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' }));
-  }
-  function todayKey() {
-    const d = nowBerlin();
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
-  }
-  function todayWeekdayName() {
-    return WEEKDAYS[nowBerlin().getDay()];
-  }
-  function parseHHMM(s){
-    // returns minutes since 00:00, or null
-    if (!s || !/^\d{2}:\d{2}$/.test(s)) return null;
-    const [h,m] = s.split(':').map(n=>parseInt(n,10));
-    return h*60+m;
-  }
-  function minutesNow(){
-    const d = nowBerlin();
-    return d.getHours()*60 + d.getMinutes();
-  }
+    // DOM-Elemente
+    const timeSlotsContainer = document.getElementById('time-slots');
+    const currentDayDisplay = document.getElementById('current-day-display');
+    const statusMessage = document.getElementById('status-message');
+    const daySelectorModal = document.getElementById('day-selector-modal');
+    const dayButtonsContainer = document.getElementById('day-buttons-container');
+    const mainView = document.getElementById('day-view');
+    const adminView = document.getElementById('admin-view');
 
-  // URL-Parameter
-  const params = new URLSearchParams(location.search);
-  const paramChild = params.get('child');
-  const isAdmin = params.get('admin') === '1';
+    // Admin-Formular-Elemente
+    const adminChildSelect = document.getElementById('admin-child-select');
+    const adminDaySelect = document.getElementById('admin-day-select');
+    const adminTimeInput = document.getElementById('admin-time-input');
+    const onetimeChildSelect = document.getElementById('onetime-child-select');
+    const onetimeDateInput = document.getElementById('onetime-date-input');
+    const onetimeTimeInput = document.getElementById('onetime-time-input');
 
-  // Hauptlogik
-  async function loadDay(){
-    const dayName = todayWeekdayName();
-    titleEl.textContent = `Heute: ${dayName}`;
-    if (!WORKDAYS.includes(dayName)) {
-      infoEl.textContent = "Kein OGS-Tag. Es werden nur Montag–Freitag geführt.";
-      listEl.innerHTML = "";
-      return;
-    }
-
-    infoEl.textContent = "Lade…";
-    listEl.innerHTML = "";
-
-    try{
-      const [timesSnap, statusSnap] = await Promise.all([
-        db.ref(dayName).once('value'),
-        db.ref(`abmeldungen/${todayKey()}`).once('value')
-      ]);
-
-      const times = timesSnap.val() || {};
-      const status = statusSnap.val() || {};
-
-      // Optionaler Auto-Abmeldeversuch per Link
-      if (paramChild){
-        await tryCheckoutLink(dayName, times, status);
-      }
-
-      // Daten erneut lesen, falls Status geändert wurde
-      const status2 = (await db.ref(`abmeldungen/${todayKey()}`).once('value')).val() || {};
-
-      // Sortierung nach Uhrzeit
-      const entries = Object.entries(times)
-        .map(([name, t]) => ({name, timeStr: t, mins: parseHHMM(String(t)) }))
-        .sort((a,b)=>{
-          if (a.mins===null && b.mins===null) return a.name.localeCompare(b.name,'de');
-          if (a.mins===null) return 1;
-          if (b.mins===null) return -1;
-          return a.mins - b.mins;
-        });
-
-      if (entries.length === 0){
-        infoEl.textContent = "Keine Einträge für heute.";
-        return;
-      }
-
-      entries.forEach(e=>{
-        const li = document.createElement('li');
-        const left = document.createElement('div');
-        left.innerHTML = `<span class="name">${e.name}</span><br><span class="muted">Abholzeit</span>`;
-        const right = document.createElement('div');
-        right.innerHTML = `<span class="pill">${e.timeStr || "–"}</span>`;
-        li.appendChild(left); li.appendChild(right);
-        if (status2 && status2[e.name] === true){
-          li.classList.add('strike');
+    // Initiales Laden der Daten
+    async function loadData() {
+        statusMessage.textContent = 'Lade Daten...';
+        try {
+            const snapshot = await database.ref().once('value');
+            const data = snapshot.val() || {};
+            abholzeitenData = data.abholzeiten || {};
+            checkedChildrenData = data.checked || {};
+            onetimeChangesData = data.onetime || {};
+            
+            extractAllChildren();
+            renderAdminForms();
+            renderDayView(weekdays[currentDayIndex]);
+            statusMessage.textContent = 'Daten geladen.';
+        } catch (error) {
+            statusMessage.textContent = `Fehler beim Laden: ${error.message}.`;
+            console.error(error);
         }
-        listEl.appendChild(li);
-      });
-      infoEl.textContent = "Fertig.";
-    }catch(err){
-      console.error(err);
-      infoEl.textContent = "Fehler beim Laden. Prüfe Regeln/Verbindung.";
-    }
-  }
-
-  async function tryCheckoutLink(dayName, times, status){
-    const name = paramChild;
-    const stored = String(times?.[name] || "");
-    if (!stored){
-      infoEl.textContent = `Unbekanntes Kind: ${name}`;
-      return;
-    }
-    // Wenn bereits abgemeldet: nichts tun
-    const statusRef = db.ref(`abmeldungen/${todayKey()}/${name}`);
-    const already = status && status[name] === true;
-    if (already){
-      infoEl.textContent = `${name}: bereits abgemeldet.`;
-      return;
     }
 
-    // Zeitfenster prüfen
-    const target = parseHHMM(stored);
-    const nowM = minutesNow();
-    const allowedAt = target !== null ? target - 5 : null;
-
-    if (isAdmin || allowedAt === null || nowM >= allowedAt){
-      try{
-        await statusRef.set(true);
-        infoEl.textContent = `${name}: erfolgreich abgemeldet.`;
-      }catch(e){
-        console.error(e);
-        infoEl.textContent = `${name}: Abmeldung fehlgeschlagen.`;
-      }
-    }else{
-      const wait = Math.max(0, allowedAt - nowM);
-      infoEl.textContent = `${name}: bitte noch ${wait} Min warten.`;
+    // Extrahieren aller Kindesnamen aus den Daten
+    function extractAllChildren() {
+        allChildrenNames = new Set();
+        for (const day in abholzeitenData) {
+            for (const name in abholzeitenData[day]) {
+                allChildrenNames.add(name);
+            }
+        }
     }
-  }
 
-  // Start
-  document.addEventListener('DOMContentLoaded', loadDay);
+    // Rendert die Tagesansicht
+    function renderDayView(day) {
+        currentDayDisplay.textContent = day;
+        timeSlotsContainer.innerHTML = '';
+        const dayData = abholzeitenData[day] || {};
+        const onetimeData = onetimeChangesData[day] || {};
+
+        const groupedTimes = {};
+        for (const name in dayData) {
+            const time = dayData[name];
+            if (!groupedTimes[time]) {
+                groupedTimes[time] = [];
+            }
+            groupedTimes[time].push(name);
+        }
+
+        const sortedTimes = Object.keys(groupedTimes).sort();
+
+        sortedTimes.forEach(time => {
+            const slotDiv = document.createElement('div');
+            slotDiv.className = 'time-slot';
+            slotDiv.innerHTML = `<div class="time-slot-header">${time} Uhr</div><ul class="child-list"></ul>`;
+            const childList = slotDiv.querySelector('.child-list');
+
+            groupedTimes[time].sort().forEach(name => {
+                const li = document.createElement('li');
+                li.className = 'child-item';
+                li.textContent = name;
+
+                const isChecked = checkedChildrenData[day] && checkedChildrenData[day][name];
+                const isOnetime = onetimeChangesData[day] && onetimeChangesData[day][name];
+
+                if (isChecked) {
+                    li.classList.add('checked');
+                } else if (isOnetime) {
+                    li.classList.add('onetime');
+                }
+                
+                childList.appendChild(li);
+            });
+            timeSlotsContainer.appendChild(slotDiv);
+        });
+    }
+
+    // Funktion zur Umschaltung der Ansichten
+    function showMainView() {
+        renderDayView(weekdays[currentDayIndex]);
+        mainView.style.display = 'block';
+        adminView.style.display = 'none';
+    }
+
+    // Zeigt den Wochentags-Auswähler an
+    function showDaySelector() {
+        dayButtonsContainer.innerHTML = '';
+        weekdays.forEach((day, index) => {
+            if (index > 0 && index < 6) { // Nur Montag bis Freitag anzeigen
+                const button = document.createElement('button');
+                button.textContent = day;
+                if (index === currentDayIndex) {
+                    button.classList.add('active');
+                }
+                button.onclick = () => {
+                    currentDayIndex = index;
+                    renderDayView(weekdays[currentDayIndex]);
+                    closeDaySelector();
+                };
+                dayButtonsContainer.appendChild(button);
+            }
+        });
+        daySelectorModal.style.display = 'flex';
+    }
+
+    function closeDaySelector() {
+        daySelectorModal.style.display = 'none';
+    }
+
+    // Initiales Rendern der Admin-Formulare
+    function renderAdminForms() {
+        const sortedChildren = Array.from(allChildrenNames).sort();
+
+        // Admin-Formular
+        adminChildSelect.innerHTML = sortedChildren.map(name => `<option>${name}</option>`).join('');
+        adminDaySelect.innerHTML = weekdays.slice(1, 6).map(day => `<option>${day}</option>`).join('');
+
+        // Einmalige-Änderung-Formular
+        onetimeChildSelect.innerHTML = sortedChildren.map(name => `<option>${name}</option>`).join('');
+    }
+
+    // Speichern der Admin-Änderung
+    async function saveAdminChange() {
+        const name = adminChildSelect.value;
+        const day = adminDaySelect.value;
+        const time = adminTimeInput.value;
+        if (!name || !day || !time) {
+            statusMessage.textContent = 'Bitte füllen Sie alle Felder aus.';
+            return;
+        }
+
+        statusMessage.textContent = 'Speichere...';
+        try {
+            await database.ref(`abholzeiten/${day}/${name}`).set(time);
+            statusMessage.textContent = 'Änderung erfolgreich gespeichert!';
+            loadData();
+        } catch (error) {
+            statusMessage.textContent = `Fehler beim Speichern: ${error.message}`;
+        }
+    }
+
+    // Speichern der einmaligen Änderung
+    async function saveOnetimeChange() {
+        const name = onetimeChildSelect.value;
+        const date = onetimeDateInput.value;
+        const time = onetimeTimeInput.value;
+        if (!name || !date || !time) {
+            statusMessage.textContent = 'Bitte füllen Sie alle Felder aus.';
+            return;
+        }
+
+        statusMessage.textContent = 'Speichere...';
+        const day = weekdays[new Date(date).getDay()];
+        if (!day) {
+            statusMessage.textContent = 'Ungültiges Datum.';
+            return;
+        }
+
+        try {
+            await database.ref(`onetime/${day}/${name}`).set(time);
+            statusMessage.textContent = 'Einmalige Änderung erfolgreich gespeichert!';
+            loadData();
+        } catch (error) {
+            statusMessage.textContent = `Fehler beim Speichern: ${error.message}`;
+        }
+    }
+
+    // Initiales Laden der App
+    document.addEventListener('DOMContentLoaded', loadData);
 </script>
+
 </body>
 </html>
