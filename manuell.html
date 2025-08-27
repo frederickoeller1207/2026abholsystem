@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Manuell abmelden</title>
+  <style>
+    body { font-family:sans-serif; background:#f4f4f4; margin:0; }
+    header { background:#111827; color:#fff; padding:12px 16px; font-weight:bold; }
+    .list { padding:16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; }
+    .card { background:#fff; padding:12px; border-radius:10px; border:1px solid #ddd; cursor:pointer; }
+    .card.abgemeldet { background:#fee2e2; border-color:#fca5a5; }
+    .name { font-weight:bold; }
+    .time { font-size:12px; color:#555; }
+  </style>
+</head>
+<body>
+  <header>Manuelle Abmeldung</header>
+  <div id="list" class="list"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-app.js";
+    import { getDatabase, ref, onValue, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-database.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-auth.js";
+
+    // ==== Deine Firebase Config eintragen ====
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "YOUR_PROJECT",
+      appId: "YOUR_APP_ID"
+    };
+
+    const DB_ROOT = "abholsystem";
+
+    const app = initializeApp(firebaseConfig);
+    const db  = getDatabase(app);
+    const auth = getAuth(app);
+    signInAnonymously(auth);
+
+    const list = document.getElementById("list");
+    const today = new Date().toISOString().slice(0,10);
+    const pathKinder = ref(db, DB_ROOT + "/kinder");
+    const pathStatus = ref(db, DB_ROOT + "/status/" + today);
+
+    let kinder = {};
+    let status = {};
+
+    onValue(pathKinder, snap => { kinder = snap.val() || {}; render(); });
+    onValue(pathStatus, snap => { status = snap.val() || {}; render(); });
+
+    function pad(n){ return String(n).padStart(2,"0"); }
+
+    function render(){
+      list.innerHTML = "";
+      for(const [id,k] of Object.entries(kinder)){
+        const st = status[k.name]?.status || "angemeldet";
+        const tm = status[k.name]?.time || "";
+        const card = document.createElement("div");
+        card.className = "card" + (st==="abgemeldet"?" abgemeldet":"");
+        card.innerHTML = `<div class="name">${k.name}</div><div class="time">${st==="abgemeldet"?"Abgemeldet um "+tm:"Angemeldet"}</div>`;
+        card.onclick = () => toggle(k.name, st);
+        list.appendChild(card);
+      }
+    }
+
+    async function toggle(name, st){
+      const now = new Date();
+      const hhmm = pad(now.getHours())+":"+pad(now.getMinutes());
+      const newSt = st==="abgemeldet" ? "angemeldet" : "abgemeldet";
+      await update(ref(db), {
+        [`${DB_ROOT}/status/${today}/${name}`]: { status:newSt, time:hhmm, at:serverTimestamp(), by:"manuell" }
+      });
+    }
+  </script>
+</body>
+</html>
