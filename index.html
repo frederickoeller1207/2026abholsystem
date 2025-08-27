@@ -19,8 +19,8 @@
   .slot h2{margin:0 0 8px 0;font-size:16px}
   .names{list-style:none;margin:0;padding:0}
   .names li{padding:4px 0;font-size:16px;line-height:1.35}
-  .strike{text-decoration:line-through;color:#e53e3e} /* rot */
-  .onetime{color:#f6e05e} /* gelb */
+  .strike{text-decoration:line-through;color:#e53e3e}
+  .onetime{color:#f6e05e}
   .modal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.4);justify-content:center;align-items:center}
   .box{background:#fff;padding:16px;border-radius:10px;width:min(92vw,520px)}
   .days{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:8px}
@@ -35,7 +35,7 @@
   <h1 id="title">Tagesansicht</h1>
   <div class="row">
     <button id="chooseDayBtn" class="secondary">Wochentag wählen</button>
-    <button id="refreshBtn" class="secondary">Aktualisieren</button>
+    <button id="manualBtn" class="secondary">Manuell abmelden</button>
     <button id="adminLinkBtn">Abholzeit anpassen</button>
   </div>
   <div id="info">Lade…</div>
@@ -80,10 +80,10 @@
 
   const titleEl=qs('#title'), infoEl=qs('#info'), slotsEl=qs('#slots');
 
-  qs('#refreshBtn').onclick=()=>loadDay();
   qs('#chooseDayBtn').onclick=()=>openDayModal();
   qs('#closeDay').onclick=()=>qs('#dayModal').style.display='none';
   qs('#adminLinkBtn').onclick=()=>{ location.href='admin.html'; };
+  qs('#manualBtn').onclick=()=>{ location.href='manuell.html'; };
 
   function openDayModal(){
     const c=qs('#dayBtns'); c.innerHTML='';
@@ -102,8 +102,8 @@
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
     document.getElementById('chooseDayBtn').style.display='none';
-    document.getElementById('refreshBtn').style.display='none';
     document.getElementById('adminLinkBtn').style.display='none';
+    document.getElementById('manualBtn').style.display='none';
     history.pushState(null,'',location.href);
     window.addEventListener('popstate',()=>{ history.pushState(null,'',location.href); });
   }
@@ -176,19 +176,18 @@
 
   async function tryAutoCheckout(times,status){
     const name=linkChild;
-    const setRef=db.ref(`abmeldungen/${dateKey()}/${name}`);
+    const setRef=firebase.database().ref(`abmeldungen/${dateKey()}/${name}`);
 
     if(!times || !times[name]) return `Unbekanntes Kind: ${name}`;
     if(status && status[name]) return `${name}: bereits abgemeldet.`;
 
-    // onetime prüfen
-    const otSnap=await db.ref(`onetime/${dateKey()}/${name}`).once('value');
+    const otSnap=await firebase.database().ref(`onetime/${dateKey()}/${name}`).once('value');
     const specialTime=otSnap.val();
 
     const baseTime=String(times[name]);
-    const t=specialTime || baseTime; // Vorrang für onetime
+    const t=specialTime || baseTime;
     const target=parseHHMM(t);
-    const allowedFrom=target!==null ? target-2 : null; // 2 Minuten vorher
+    const allowedFrom=target!==null ? target-2 : null;
 
     if(isAdmin || allowedFrom===null || nowMinutes()>=allowedFrom){
       try{ await setRef.set(true); return `${name}: erfolgreich abgemeldet.`; }
