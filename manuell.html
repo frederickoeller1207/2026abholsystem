@@ -3,139 +3,54 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Manuell abmelden</title>
+  <title>abmelden.html</title>
   <style>
-    :root{--fg:#111827;--bg:#f4f4f4}
-    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);margin:0;color:var(--fg)}
-    header{background:#111827;color:#fff;padding:12px 16px;font-weight:600}
-    .bar{padding:8px 16px;font-size:14px}
-    .bar.err{background:#fee2e2;color:#991b1b}
-    .bar.info{background:#eef2ff;color:#3730a3}
-    .list{padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
-    .card{background:#fff;padding:12px;border-radius:10px;border:1px solid #e5e7eb;cursor:pointer}
-    .card.abgemeldet{background:#fee2e2;border-color:#fca5a5}
-    .name{font-weight:700}
-    .time{font-size:12px;color:#555}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f4f4f4;color:#111}
+    .wrap{max-width:520px;margin:40px auto;padding:20px;background:#fff;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.08)}
+    h1{font-size:18px;margin:0 0 12px}
+    label{display:block;font-size:14px;margin:8px 0}
+    input{width:100%;padding:12px 14px;font-size:16px;border:1px solid #cbd5e1;border-radius:10px;outline:none}
+    input:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+    button{margin-top:12px;width:100%;padding:12px 14px;font-size:16px;border:0;border-radius:10px;background:#2563eb;color:#fff;cursor:pointer}
+    button:active{transform:translateY(1px)}
   </style>
 </head>
 <body>
-  <header>Manuelle Abmeldung</header>
-  <div id="status" class="bar info">Lade…</div>
-  <div id="list" class="list" hidden></div>
+  <div class="wrap">
+    <h1>Wer soll abgemeldet werden?</h1>
+    <form id="f">
+      <label for="name">Name eingeben</label>
+      <input id="name" type="text" autocomplete="off" placeholder="z. B. art ur" />
+      <button type="submit">Abmelden</button>
+    </form>
+  </div>
 
-  <script type="module">
-    // HINWEIS: Prüfe die Version-URL. 12.6.1 ist korrekt, falls dein Projekt v12 nutzt.
-    // Nutze exakt DEINE Config inkl. richtigem databaseURL:
-    // https://<PROJECT-ID>-default-rtdb.europe-west1.firebasedatabase.app
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-app.js";
-    import { getDatabase, ref, onValue, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-database.js";
-    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-auth.js";
+  <script>
+    const BASE = "https://frederickoeller1207.github.io/2026abholsystem/index.html?child=";
 
-    const ui = {
-      status: document.getElementById("status"),
-      list: document.getElementById("list")
-    };
-    const showInfo = (msg)=>{ ui.status.className="bar info"; ui.status.textContent=msg; };
-    const showErr  = (msg)=>{ ui.status.className="bar err"; ui.status.textContent=msg; };
-    const hideStatus = ()=>{ ui.status.hidden = true; ui.list.hidden = false; };
-
-    // === DEINE Firebase Config hier einsetzen ===
-    const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT-default-rtdb.europe-west1.firebasedatabase.app",
-      projectId: "YOUR_PROJECT",
-      appId: "YOUR_APP_ID"
-    };
-
-    const DB_ROOT = "abholsystem";
-
-    function pad(n){ return String(n).padStart(2,"0"); }
-    const today = new Date().toISOString().slice(0,10);
-
-    let kinder = {};
-    let status = {};
-
-    try {
-      const app  = initializeApp(firebaseConfig);
-      const db   = getDatabase(app);
-      const auth = getAuth(app);
-
-      onAuthStateChanged(auth, (user)=>{
-        if (!user) return;
-        hideStatus();
-
-        const pathKinder = ref(db, `${DB_ROOT}/kinder`);
-        const pathStatus = ref(db, `${DB_ROOT}/status/${today}`);
-
-        onValue(pathKinder, snap => {
-          kinder = snap.exists() ? snap.val() : {};
-          render();
-        }, err => showErr("Fehler beim Laden der Kinder: "+err.message));
-
-        onValue(pathStatus, snap => {
-          status = snap.exists() ? snap.val() : {};
-          render();
-        }, err => showErr("Fehler beim Laden des Status: "+err.message));
-
-        // Klick-Handler braucht db im Scope
-        window.__toggle = async function(name, st){
-          try{
-            const now = new Date();
-            const hhmm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-            const newSt = st === "abgemeldet" ? "angemeldet" : "abgemeldet";
-            await update(ref(db), {
-              [`${DB_ROOT}/status/${today}/${name}`]: {
-                status: newSt,
-                time: hhmm,
-                at: serverTimestamp(),
-                by: "manuell"
-              }
-            });
-          } catch(e){
-            showErr("Schreiben fehlgeschlagen: "+e.message);
-            console.error(e);
-          }
-        };
-
-      });
-
-      signInAnonymously(auth).catch(e=>{
-        showErr("Anonyme Anmeldung fehlgeschlagen: "+e.message);
-        console.error(e);
-      });
-
-    } catch(e){
-      showErr("Initialisierung fehlgeschlagen: "+e.message);
-      console.error(e);
+    function normalizeName(raw){
+      if(!raw) return "";
+      // Leerzeichen entfernen
+      let s = String(raw).replace(/\s+/g,"");
+      // alles klein, dann ersten Buchstaben groß
+      s = s.toLowerCase();
+      if(s.length===0) return "";
+      return s[0].toUpperCase() + s.slice(1);
     }
 
-    function render(){
-      const list = ui.list;
-      list.innerHTML = "";
-      // Erwartetes Schema: abholsystem/kinder/<id> = { name: "Leni" }
-      // und abholsystem/status/YYYY-MM-DD/<name> = { status, time, ... }
-      const entries = Object.entries(kinder);
-      if(entries.length === 0){
-        showInfo("Keine Kinder gefunden. Prüfe Pfad: "+DB_ROOT+"/kinder");
+    document.getElementById("f").addEventListener("submit", function(e){
+      e.preventDefault();
+      const input = document.getElementById("name");
+      const name = normalizeName(input.value);
+      if(!name){
+        alert("Bitte einen Namen eingeben.");
+        input.focus();
         return;
-      } else {
-        hideStatus();
       }
-      for(const [id, k] of entries){
-        const nm = k?.name || id;
-        const st = status[nm]?.status || "angemeldet";
-        const tm = status[nm]?.time || "";
-        const card = document.createElement("div");
-        card.className = "card" + (st === "abgemeldet" ? " abgemeldet" : "");
-        card.innerHTML = `
-          <div class="name">${nm}</div>
-          <div class="time">${st === "abgemeldet" ? "Abgemeldet um "+tm : "Angemeldet"}</div>
-        `;
-        card.onclick = ()=> window.__toggle(nm, st);
-        list.appendChild(card);
-      }
-    }
+      const url = BASE + encodeURIComponent(name);
+      // Im selben Tab öffnen
+      window.location.href = url;
+    });
   </script>
 </body>
 </html>
