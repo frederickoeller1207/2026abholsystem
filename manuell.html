@@ -20,7 +20,7 @@
     <h1>Wer soll abgemeldet werden?</h1>
     <form id="f">
       <label for="name">Name eingeben</label>
-      <input id="name" type="text" autocomplete="off" placeholder="z. B. art ur" />
+      <input id="name" type="text" autocomplete="off" />
       <button type="submit">Abmelden</button>
     </form>
   </div>
@@ -30,12 +30,9 @@
 
     function normalizeName(raw){
       if(!raw) return "";
-      // Leerzeichen entfernen
       let s = String(raw).replace(/\s+/g,"");
-      // alles klein, dann ersten Buchstaben groß
       s = s.toLowerCase();
-      if(s.length===0) return "";
-      return s[0].toUpperCase() + s.slice(1);
+      return s.length ? s[0].toUpperCase() + s.slice(1) : "";
     }
 
     document.getElementById("f").addEventListener("submit", function(e){
@@ -47,8 +44,7 @@
         input.focus();
         return;
       }
-      const url = BASE + encodeURIComponent(name);
-      // Im selben Tab öffnen
+      const url = BASE + encodeURIComponent(name) + "&admin=1";
       window.location.href = url;
     });
   </script>
