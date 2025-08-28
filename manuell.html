@@ -5,25 +5,41 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Manuell abmelden</title>
   <style>
-    body { font-family:sans-serif; background:#f4f4f4; margin:0; }
-    header { background:#111827; color:#fff; padding:12px 16px; font-weight:bold; }
-    .list { padding:16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; }
-    .card { background:#fff; padding:12px; border-radius:10px; border:1px solid #ddd; cursor:pointer; }
-    .card.abgemeldet { background:#fee2e2; border-color:#fca5a5; }
-    .name { font-weight:bold; }
-    .time { font-size:12px; color:#555; }
+    :root{--fg:#111827;--bg:#f4f4f4}
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);margin:0;color:var(--fg)}
+    header{background:#111827;color:#fff;padding:12px 16px;font-weight:600}
+    .bar{padding:8px 16px;font-size:14px}
+    .bar.err{background:#fee2e2;color:#991b1b}
+    .bar.info{background:#eef2ff;color:#3730a3}
+    .list{padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+    .card{background:#fff;padding:12px;border-radius:10px;border:1px solid #e5e7eb;cursor:pointer}
+    .card.abgemeldet{background:#fee2e2;border-color:#fca5a5}
+    .name{font-weight:700}
+    .time{font-size:12px;color:#555}
   </style>
 </head>
 <body>
   <header>Manuelle Abmeldung</header>
-  <div id="list" class="list"></div>
+  <div id="status" class="bar info">Lade…</div>
+  <div id="list" class="list" hidden></div>
 
   <script type="module">
+    // HINWEIS: Prüfe die Version-URL. 12.6.1 ist korrekt, falls dein Projekt v12 nutzt.
+    // Nutze exakt DEINE Config inkl. richtigem databaseURL:
+    // https://<PROJECT-ID>-default-rtdb.europe-west1.firebasedatabase.app
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-app.js";
     import { getDatabase, ref, onValue, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-database.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.6.1/firebase-auth.js";
 
-    // ==== Deine Firebase Config eintragen ====
+    const ui = {
+      status: document.getElementById("status"),
+      list: document.getElementById("list")
+    };
+    const showInfo = (msg)=>{ ui.status.className="bar info"; ui.status.textContent=msg; };
+    const showErr  = (msg)=>{ ui.status.className="bar err"; ui.status.textContent=msg; };
+    const hideStatus = ()=>{ ui.status.hidden = true; ui.list.hidden = false; };
+
+    // === DEINE Firebase Config hier einsetzen ===
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -34,44 +50,91 @@
 
     const DB_ROOT = "abholsystem";
 
-    const app = initializeApp(firebaseConfig);
-    const db  = getDatabase(app);
-    const auth = getAuth(app);
-    signInAnonymously(auth);
-
-    const list = document.getElementById("list");
+    function pad(n){ return String(n).padStart(2,"0"); }
     const today = new Date().toISOString().slice(0,10);
-    const pathKinder = ref(db, DB_ROOT + "/kinder");
-    const pathStatus = ref(db, DB_ROOT + "/status/" + today);
 
     let kinder = {};
     let status = {};
 
-    onValue(pathKinder, snap => { kinder = snap.val() || {}; render(); });
-    onValue(pathStatus, snap => { status = snap.val() || {}; render(); });
+    try {
+      const app  = initializeApp(firebaseConfig);
+      const db   = getDatabase(app);
+      const auth = getAuth(app);
 
-    function pad(n){ return String(n).padStart(2,"0"); }
+      onAuthStateChanged(auth, (user)=>{
+        if (!user) return;
+        hideStatus();
 
-    function render(){
-      list.innerHTML = "";
-      for(const [id,k] of Object.entries(kinder)){
-        const st = status[k.name]?.status || "angemeldet";
-        const tm = status[k.name]?.time || "";
-        const card = document.createElement("div");
-        card.className = "card" + (st==="abgemeldet"?" abgemeldet":"");
-        card.innerHTML = `<div class="name">${k.name}</div><div class="time">${st==="abgemeldet"?"Abgemeldet um "+tm:"Angemeldet"}</div>`;
-        card.onclick = () => toggle(k.name, st);
-        list.appendChild(card);
-      }
+        const pathKinder = ref(db, `${DB_ROOT}/kinder`);
+        const pathStatus = ref(db, `${DB_ROOT}/status/${today}`);
+
+        onValue(pathKinder, snap => {
+          kinder = snap.exists() ? snap.val() : {};
+          render();
+        }, err => showErr("Fehler beim Laden der Kinder: "+err.message));
+
+        onValue(pathStatus, snap => {
+          status = snap.exists() ? snap.val() : {};
+          render();
+        }, err => showErr("Fehler beim Laden des Status: "+err.message));
+
+        // Klick-Handler braucht db im Scope
+        window.__toggle = async function(name, st){
+          try{
+            const now = new Date();
+            const hhmm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+            const newSt = st === "abgemeldet" ? "angemeldet" : "abgemeldet";
+            await update(ref(db), {
+              [`${DB_ROOT}/status/${today}/${name}`]: {
+                status: newSt,
+                time: hhmm,
+                at: serverTimestamp(),
+                by: "manuell"
+              }
+            });
+          } catch(e){
+            showErr("Schreiben fehlgeschlagen: "+e.message);
+            console.error(e);
+          }
+        };
+
+      });
+
+      signInAnonymously(auth).catch(e=>{
+        showErr("Anonyme Anmeldung fehlgeschlagen: "+e.message);
+        console.error(e);
+      });
+
+    } catch(e){
+      showErr("Initialisierung fehlgeschlagen: "+e.message);
+      console.error(e);
     }
 
-    async function toggle(name, st){
-      const now = new Date();
-      const hhmm = pad(now.getHours())+":"+pad(now.getMinutes());
-      const newSt = st==="abgemeldet" ? "angemeldet" : "abgemeldet";
-      await update(ref(db), {
-        [`${DB_ROOT}/status/${today}/${name}`]: { status:newSt, time:hhmm, at:serverTimestamp(), by:"manuell" }
-      });
+    function render(){
+      const list = ui.list;
+      list.innerHTML = "";
+      // Erwartetes Schema: abholsystem/kinder/<id> = { name: "Leni" }
+      // und abholsystem/status/YYYY-MM-DD/<name> = { status, time, ... }
+      const entries = Object.entries(kinder);
+      if(entries.length === 0){
+        showInfo("Keine Kinder gefunden. Prüfe Pfad: "+DB_ROOT+"/kinder");
+        return;
+      } else {
+        hideStatus();
+      }
+      for(const [id, k] of entries){
+        const nm = k?.name || id;
+        const st = status[nm]?.status || "angemeldet";
+        const tm = status[nm]?.time || "";
+        const card = document.createElement("div");
+        card.className = "card" + (st === "abgemeldet" ? " abgemeldet" : "");
+        card.innerHTML = `
+          <div class="name">${nm}</div>
+          <div class="time">${st === "abgemeldet" ? "Abgemeldet um "+tm : "Angemeldet"}</div>
+        `;
+        card.onclick = ()=> window.__toggle(nm, st);
+        list.appendChild(card);
+      }
     }
   </script>
 </body>
