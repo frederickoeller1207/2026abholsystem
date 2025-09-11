@@ -50,17 +50,35 @@
 </div></div>
 
 <script>
-  const firebaseConfig = {
+  /* === Abholsystem-DB (Zeiten & Abmeldungen) === */
+  const appAbhol = firebase.initializeApp({
     apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
     databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
+  }, "abhol");
+  const db = firebase.app("abhol").database();
 
+  /* === Systemmodus aus Haupt-DB lesen (grün/gelb/rot) === */
+  const appMode = firebase.initializeApp({
+    apiKey:"AIzaSyAQaNKUa-RKvUcwlPpWnEyKxcVjYV6cZuU",
+    databaseURL:"https://gesamt-dae4e-default-rtdb.europe-west1.firebasedatabase.app"
+  }, "mode");
+  const modeDB = firebase.app("mode").database();
+
+  async function getSystemMode(){
+    try{
+      const snap = await modeDB.ref("systemmode/state").once("value");
+      const v = snap.val();
+      return (v && v.value) ? v.value : "green"; // fallback
+    }catch(e){
+      console.warn("Mode read failed, defaulting green", e);
+      return "green";
+    }
+  }
+
+  /* === Utils === */
   function berlinParts(d=new Date()){
     const fmt = new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour12:false,
-      year:'numeric',month:'2-digit',day:'2-digit',
-      hour:'2-digit',minute:'2-digit',weekday:'long'});
+      year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'long'});
     const parts = fmt.formatToParts(d); const get=t=>parts.find(p=>p.type===t)?.value;
     return {y:Number(get('year')), m:get('month'), d:get('day'),
             h:Number(get('hour')), min:Number(get('minute')), weekday:get('weekday')};
@@ -174,14 +192,23 @@
     }
   }
 
+  /* WICHTIG: Modus zuerst prüfen. In „rot“ nie abmelden, sondern Warnung. */
   async function tryAutoCheckout(times,status){
+    const mode = await getSystemMode();
+    if(mode === 'red'){
+      return "Die Abholzeit ist im gesperrten Modus nicht verfügbar. Bitte nutze das Terminal nicht im gesperrten Modus. Beim nächsten Versuch wird ein Mousedollar von deinem Konto entfernt!";
+    }
+    if(mode !== 'green' && mode !== 'yellow'){
+      return "Abmeldung derzeit nicht verfügbar.";
+    }
+
     const name=linkChild;
-    const setRef=firebase.database().ref(`abmeldungen/${dateKey()}/${name}`);
+    const setRef=db.ref(`abmeldungen/${dateKey()}/${name}`);
 
     if(!times || !times[name]) return `Unbekanntes Kind: ${name}`;
     if(status && status[name]) return `${name}: bereits abgemeldet.`;
 
-    const otSnap=await firebase.database().ref(`onetime/${dateKey()}/${name}`).once('value');
+    const otSnap=await db.ref(`onetime/${dateKey()}/${name}`).once('value');
     const specialTime=otSnap.val();
 
     const baseTime=String(times[name]);
