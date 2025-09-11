@@ -68,10 +68,12 @@
     try{
       const snap = await modeDB.ref("systemmode/state").once("value");
       const v = snap.val();
-      return (v && v.value) ? v.value : "green"; // fallback
+      const raw = typeof v === "string" ? v : (v && v.value);
+      if (raw === "green" || raw === "yellow" || raw === "red") return raw;
+      return "red"; // Fallback: sperren
     }catch(e){
-      console.warn("Mode read failed, defaulting green", e);
-      return "green";
+      console.warn("Mode read failed", e);
+      return "red"; // Fail-safe
     }
   }
 
@@ -192,12 +194,14 @@
     }
   }
 
-  /* WICHTIG: Modus zuerst prüfen. In „rot“ nie abmelden, sondern Warnung. */
+  /* Modus zuerst prüfen. In „rot“ nie abmelden, sondern Warnung. */
   async function tryAutoCheckout(times,status){
     const mode = await getSystemMode();
+
     if(mode === 'red'){
       return "Die Abholzeit ist im gesperrten Modus nicht verfügbar. Bitte nutze das Terminal nicht im gesperrten Modus. Beim nächsten Versuch wird ein Mousedollar von deinem Konto entfernt!";
     }
+
     if(mode !== 'green' && mode !== 'yellow'){
       return "Abmeldung derzeit nicht verfügbar.";
     }
@@ -210,7 +214,6 @@
 
     const otSnap=await db.ref(`onetime/${dateKey()}/${name}`).once('value');
     const specialTime=otSnap.val();
-
     const baseTime=String(times[name]);
     const t=specialTime || baseTime;
     const target=parseHHMM(t);
