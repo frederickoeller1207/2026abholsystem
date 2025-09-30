@@ -27,14 +27,15 @@
   .days button{background:#e2e8f0;color:#334155}
   .days button.active{background:#38a169;color:#fff}
   #link-view{display:none;min-height:50vh;display:flex;align-items:center;justify-content:center;}
+  /* NEU: Hintergrundfarbe für Sperr-Nachricht */
   #link-msg{background:#fff;padding:22px 26px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:20px;text-align:center;}
+  #link-msg.locked { background-color: #fcebeb; border: 2px solid #e53e3e; } 
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1 id="title">Tagesansicht</h1>
 
-  <!-- Buttons: initial versteckt, nur im Nicht-Linkmodus einblenden -->
   <div id="controls" class="row" style="display:none">
     <button id="chooseDayBtn" class="secondary">Wochentag wählen</button>
     <button id="manualBtn" class="secondary">Manuell abmelden</button>
@@ -58,27 +59,14 @@
     apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
     databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
   }, "abhol");
-  const db = firebase.app("abhol").database();
+  const dbAbhol = firebase.app("abhol").database();
 
-  /* === Systemmodus aus Haupt-DB lesen (grün/gelb/rot) === */
+  /* === Systemmodus & Globale Sperre (Gesamt-DB) === */
   const appMode = firebase.initializeApp({
     apiKey:"AIzaSyAQaNKUa-RKvUcwlPpWnEyKxcVjYV6cZuU",
     databaseURL:"https://gesamt-dae4e-default-rtdb.europe-west1.firebasedatabase.app"
   }, "mode");
-  const modeDB = firebase.app("mode").database();
-
-  async function getSystemMode(){
-    try{
-      const snap = await modeDB.ref("systemmode/state").once("value");
-      const v = snap.val();
-      const raw = typeof v === "string" ? v : (v && v.value);
-      if (raw === "green" || raw === "yellow" || raw === "red") return raw;
-      return "red"; // Fallback: sperren
-    }catch(e){
-      console.warn("Mode read failed", e);
-      return "red"; // Fail-safe
-    }
-  }
+  const dbGesamt = firebase.app("mode").database();
 
   /* === Utils === */
   function berlinParts(d=new Date()){
@@ -103,6 +91,7 @@
 
   const titleEl=qs('#title'), infoEl=qs('#info'), slotsEl=qs('#slots');
   const controls = document.getElementById('controls');
+  const linkMsgEl = document.getElementById('link-msg');
 
   qs('#chooseDayBtn').onclick=()=>openDayModal();
   qs('#closeDay').onclick=()=>qs('#dayModal').style.display='none';
@@ -121,11 +110,12 @@
     qs('#dayModal').style.display='flex';
   }
 
-  function enterLinkMode(msg){
-    document.getElementById('link-msg').textContent=msg;
+  function enterLinkMode(msg, isLocked=false){
+    linkMsgEl.textContent=msg;
+    linkMsgEl.classList.toggle('locked', isLocked);
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
-    if (controls) controls.style.display='none';           // harte Absicherung
+    if (controls) controls.style.display='none';
     document.getElementById('chooseDayBtn')?.setAttribute('disabled','true');
     document.getElementById('adminLinkBtn')?.setAttribute('disabled','true');
     document.getElementById('manualBtn')?.setAttribute('disabled','true');
@@ -135,29 +125,28 @@
 
   async function loadDay(){
     titleEl.textContent=`Heute: ${currentDay}`;
-    // Buttons nur anzeigen, wenn KEIN Linkmodus aktiv ist
     if (!linkChild) { controls.style.display='flex'; } else { controls.style.display='none'; }
 
     if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; slotsEl.innerHTML=''; return; }
     infoEl.textContent='Lade…'; slotsEl.innerHTML='';
 
     try{
-      const timesSnap=await db.ref(currentDay).once('value');
+      const timesSnap=await dbAbhol.ref(currentDay).once('value');
       const times=timesSnap.val()||{};
 
       if(linkChild){
-        const statusNow=(await db.ref(`abmeldungen/${dateKey()}`).once('value')).val()||{};
+        const statusNow=(await dbAbhol.ref(`abmeldungen/${dateKey()}`).once('value')).val()||{};
         const msg=await tryAutoCheckout(times,statusNow);
-        enterLinkMode(msg);
         return;
       }
 
+      // ... Lade Logik für Nicht-Link-Modus (Tagesansicht) bleibt unverändert
       const isTodaySelected=(currentDay===todayName());
       let status={}, onetime={};
       if(isTodaySelected){
         [status,onetime]=await Promise.all([
-          db.ref(`abmeldungen/${dateKey()}`).once('value').then(s=>s.val()||{}),
-          db.ref(`onetime/${dateKey()}`).once('value').then(s=>s.val()||{})
+          dbAbhol.ref(`abmeldungen/${dateKey()}`).once('value').then(s=>s.val()||{}),
+          dbAbhol.ref(`onetime/${dateKey()}`).once('value').then(s=>s.val()||{})
         ]);
       }
 
@@ -202,56 +191,107 @@
     }
   }
 
-  /* === Auto-Abmeldung inkl. Sperrlogik === */
+  /* === Auto-Abmeldung inkl. NEUER Sperrlogik === */
   async function tryAutoCheckout(times,status){
-    const mode = await getSystemMode();
     const name = linkChild;
-
-    // --- Sperrzustand prüfen (gilt immer, egal welcher Modus) ---
-    const lockRef = db.ref(`locks/${dateKey()}/${name}`);
-    const lockSnap = await lockRef.once('value');
-    const lock = lockSnap.val();
     const now = Date.now();
+    const systemModeRef = dbGesamt.ref("systemmode/state");
+    const kindRef = dbGesamt.ref(`kinder/${name}`);
+    const linkFailsRef = dbAbhol.ref(`linkFails/${dateKey()}/${name}`);
+    const SperrGrundAutomatisch = "Terminal benutzt im gesperrten Modus";
+    const SperrDauer = 10 * 60 * 1000; // 10 Minuten in Millisekunden
+    
+    // --- 1. Globale Admin-Sperre prüfen (Priorität) ---
+    const kindSnap = await kindRef.once('value');
+    const kindData = kindSnap.val() || {};
+    
+    if (kindData.gesperrt === true) {
+      const sperrBis = kindData.sperrBis || 0;
+      const restZeitMs = sperrBis - now;
+      
+      let msg = `${name}: Dein Konto wurde vorübergehend gesperrt! Grund: ${kindData.sperrGrund || 'Nicht angegeben'}.`;
 
-    if (lock && lock.until && now < lock.until) {
-      const restMin = Math.ceil((lock.until - now)/60000);
-      return `${name}: Dein Konto ist aufgrund von Fehlverhalten für ${restMin} Minuten gesperrt.`;
-    }
-
-    if(mode === 'red'){
-      // Fehlversuche im roten Modus zählen (Fenster 5 Minuten)
-      let fails = (lock && lock.fails) || [];
-      fails = fails.filter(ts => now - ts < 5*60000);
-      fails.push(now);
-
-      if (fails.length >= 3){
-        await lockRef.set({ until: now + 5*60000, fails: [] });
-        return `${name}: Dein Konto ist aufgrund von Fehlverhalten für 5 Minuten gesperrt.`;
-      } else {
-        await lockRef.set({ fails });
-        return "Die Abholzeit ist im gesperrten Modus nicht verfügbar! Bitte nutze das Terminal nicht im gesperrten Modus sonst wird dein Konto vorübergehend deaktiviert.";
+      if (restZeitMs > 0) {
+        // Runde die Minuten auf
+        const restMin = Math.ceil(restZeitMs / 60000);
+        msg += `<br>Dein Konto ist noch für **${restMin} Minute(n)** gesperrt.`;
+      } else if (kindData.sperrGrund === SperrGrundAutomatisch) {
+        // Wenn Sperrzeit abgelaufen und es eine automatische Sperre war: entsperren
+        await kindRef.update({ gesperrt: null, sperrGrund: null, sperrBis: null });
+        // Führe Checkout nach Entsperrung fort
+        return continueCheckout(times, status, name);
       }
+      
+      // Wenn Admin manuell gesperrt hat (keine sperrBis Zeit oder Grund ist individuell), zeige die Nachricht.
+      enterLinkMode(msg, true);
+      return;
     }
+    
+    // --- 2. Prüfen, ob Terminal im Roten Modus ist (für Fail-Zählung) ---
+    const modeSnap = await systemModeRef.once("value");
+    const rawMode = modeSnap.val().value || "green";
 
-    // Ab hier nur grün/gelb: zuerst erneut Sperre prüfen (oben schon abgedeckt)
-    const setRef=db.ref(`abmeldungen/${dateKey()}/${name}`);
+    if (rawMode === 'red') {
+      let failsSnap = await linkFailsRef.once('value');
+      let fails = failsSnap.val() || [];
+      
+      // Filter Fails, die älter als 5 Minuten sind
+      fails = fails.filter(ts => now - ts < 5 * 60 * 1000); // 5 Minuten
+      fails.push(now); // Aktuellen Versuch hinzufügen
+      
+      if (fails.length >= 2) { // ZWEIMAL Scannen führt zur Sperre
+        const sperrBis = now + SperrDauer;
+        
+        // Globale Sperre in dbGesamt (db1) aktivieren
+        await kindRef.update({
+          gesperrt: true, 
+          sperrGrund: SperrGrundAutomatisch, 
+          sperrBis: sperrBis // Timestamp für 10 Minuten in der Zukunft
+        });
+        
+        // Fails zurücksetzen und sperren
+        await linkFailsRef.set([]);
+        
+        const msg = `${name}: Dein Konto wurde vorübergehend gesperrt! Grund: ${SperrGrundAutomatisch}.<br>Dein Konto ist noch für **10 Minuten** gesperrt.`;
+        enterLinkMode(msg, true);
+        return;
+      } else {
+        await linkFailsRef.set(fails); // Fails speichern
+        const msg = `Die Abholzeit ist im gesperrten Modus nicht verfügbar! Das Konto wird bei einem weiteren Fehlversuch (innerhalb 5 Min.) für 10 Minuten gesperrt.`;
+        enterLinkMode(msg, true);
+        return;
+      }
+    } // End if (rawMode === 'red')
 
-    if(!times || !times[name]) return `Unbekanntes Kind: ${name}`;
-    if(status && status[name]) return `${name}: bereits abgemeldet.`;
+    // --- 3. Normaler Checkout (Grün/Gelb) ---
+    return continueCheckout(times, status, name);
+  }
 
-    const otSnap=await db.ref(`onetime/${dateKey()}/${name}`).once('value');
+  async function continueCheckout(times, status, name) {
+    const setRef=dbAbhol.ref(`abmeldungen/${dateKey()}/${name}`);
+
+    if(!times || !times[name]) return enterLinkMode(`Unbekanntes Kind: ${name}.`);
+    if(status && status[name]) return enterLinkMode(`${name}: bereits abgemeldet.`);
+
+    const otSnap=await dbAbhol.ref(`onetime/${dateKey()}/${name}`).once('value');
     const specialTime=otSnap.val();
     const baseTime=String(times[name]);
     const t=specialTime || baseTime;
     const target=parseHHMM(t);
     const allowedFrom=target!==null ? target-2 : null;
+    const now = nowMinutes();
 
-    if(isAdmin || allowedFrom===null || nowMinutes()>=allowedFrom){
-      try{ await setRef.set(true); return `${name}: erfolgreich abgemeldet.`; }
-      catch{ return `${name}: Abmeldung fehlgeschlagen.`; }
+    if(isAdmin || allowedFrom===null || now >= allowedFrom){
+      try{ 
+        await setRef.set(true); 
+        // Falls Fehlversuch-Zähler existiert, löschen
+        dbAbhol.ref(`linkFails/${dateKey()}/${name}`).set(null);
+        enterLinkMode(`${name}: erfolgreich abgemeldet.`); 
+      }
+      catch{ enterLinkMode(`${name}: Abmeldung fehlgeschlagen.`); }
     }else{
-      const wait=Math.max(0, allowedFrom-nowMinutes());
-      return `${name}: bitte noch ${wait} Min warten.`;
+      const wait=Math.max(0, allowedFrom-now);
+      enterLinkMode(`${name}: bitte noch ${wait} Min warten.`);
     }
   }
 
