@@ -111,7 +111,7 @@
   }
 
   function enterLinkMode(msg, isLocked=false){
-    linkMsgEl.textContent=msg;
+    linkMsgEl.innerHTML=msg; // Verwende innerHTML für `<br>` und Formatierung
     linkMsgEl.classList.toggle('locked', isLocked);
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
@@ -208,21 +208,27 @@
     if (kindData.gesperrt === true) {
       const sperrBis = kindData.sperrBis || 0;
       const restZeitMs = sperrBis - now;
+      const istAutomatischeSperre = kindData.sperrGrund === SperrGrundAutomatisch;
       
-      let msg = `${name}: Dein Konto wurde vorübergehend gesperrt! Grund: ${kindData.sperrGrund || 'Nicht angegeben'}.`;
+      let msg;
 
       if (restZeitMs > 0) {
-        // Runde die Minuten auf
+        // Temporäre Sperre läuft noch
         const restMin = Math.ceil(restZeitMs / 60000);
-        msg += `<br>Dein Konto ist noch für **${restMin} Minute(n)** gesperrt.`;
-      } else if (kindData.sperrGrund === SperrGrundAutomatisch) {
-        // Wenn Sperrzeit abgelaufen und es eine automatische Sperre war: entsperren
+        
+        // ANGEPASSTE SPERRMELDUNG
+        msg = `Dein Konto wurde gesperrt! Grund: ${kindData.sperrGrund || 'Nicht angegeben'}.<br>Du hast für **${restMin} Minute(n)** keinen Zugriff auf dein Konto.`;
+
+      } else if (istAutomatischeSperre) {
+        // Automatische Sperre ist abgelaufen: entsperren
         await kindRef.update({ gesperrt: null, sperrGrund: null, sperrBis: null });
         // Führe Checkout nach Entsperrung fort
         return continueCheckout(times, status, name);
+      } else {
+        // Manuelle Sperre ist aktiv (keine automatische Zeitsteuerung)
+        msg = `${name}: Dein Konto ist gesperrt! Grund: ${kindData.sperrGrund || 'Nicht angegeben'}.`;
       }
       
-      // Wenn Admin manuell gesperrt hat (keine sperrBis Zeit oder Grund ist individuell), zeige die Nachricht.
       enterLinkMode(msg, true);
       return;
     }
@@ -250,15 +256,18 @@
         });
         
         // Fails zurücksetzen und sperren
-        await linkFailsRef.set([]);
+        await linkFailsRef.set(null); // Setze Fails auf null, da Sperre aktiv ist
         
-        const msg = `${name}: Dein Konto wurde vorübergehend gesperrt! Grund: ${SperrGrundAutomatisch}.<br>Dein Konto ist noch für **10 Minuten** gesperrt.`;
+        // Sperrmeldung direkt nach Aktivierung
+        const msg = `Dein Konto wurde gesperrt! Grund: ${SperrGrundAutomatisch}.<br>Du hast für **10 Minuten** keinen Zugriff auf dein Konto.`;
         enterLinkMode(msg, true);
         return;
       } else {
         await linkFailsRef.set(fails); // Fails speichern
-        const msg = `Die Abholzeit ist im gesperrten Modus nicht verfügbar! Das Konto wird bei einem weiteren Fehlversuch (innerhalb 5 Min.) für 10 Minuten gesperrt.`;
-        enterLinkMode(msg, true);
+        
+        // ANGEPASSTE WARNUNG
+        const msg = `Warnung! Nutze das Terminal nicht im gesperrten Modus. Beim nächsten Versuch wird dein Konto für 10 Minuten gesperrt.`;
+        enterLinkMode(msg, true); // True für rote Hervorhebung
         return;
       }
     } // End if (rawMode === 'red')
