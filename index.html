@@ -33,11 +33,14 @@
 <body>
 <div class="wrap">
   <h1 id="title">Tagesansicht</h1>
-  <div class="row">
+
+  <!-- Buttons: initial versteckt, nur im Nicht-Linkmodus einblenden -->
+  <div id="controls" class="row" style="display:none">
     <button id="chooseDayBtn" class="secondary">Wochentag wählen</button>
     <button id="manualBtn" class="secondary">Manuell abmelden</button>
     <button id="adminLinkBtn">Abholzeit anpassen</button>
   </div>
+
   <div id="info">Lade…</div>
   <div id="slots"></div>
   <div id="link-view"><div id="link-msg"></div></div>
@@ -99,6 +102,7 @@
   const isAdmin=params.get('admin')==='1';
 
   const titleEl=qs('#title'), infoEl=qs('#info'), slotsEl=qs('#slots');
+  const controls = document.getElementById('controls');
 
   qs('#chooseDayBtn').onclick=()=>openDayModal();
   qs('#closeDay').onclick=()=>qs('#dayModal').style.display='none';
@@ -121,15 +125,19 @@
     document.getElementById('link-msg').textContent=msg;
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
-    document.getElementById('chooseDayBtn').style.display='none';
-    document.getElementById('adminLinkBtn').style.display='none';
-    document.getElementById('manualBtn').style.display='none';
+    if (controls) controls.style.display='none';           // harte Absicherung
+    document.getElementById('chooseDayBtn')?.setAttribute('disabled','true');
+    document.getElementById('adminLinkBtn')?.setAttribute('disabled','true');
+    document.getElementById('manualBtn')?.setAttribute('disabled','true');
     history.pushState(null,'',location.href);
     window.addEventListener('popstate',()=>{ history.pushState(null,'',location.href); });
   }
 
   async function loadDay(){
     titleEl.textContent=`Heute: ${currentDay}`;
+    // Buttons nur anzeigen, wenn KEIN Linkmodus aktiv ist
+    if (!linkChild) { controls.style.display='flex'; } else { controls.style.display='none'; }
+
     if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; slotsEl.innerHTML=''; return; }
     infoEl.textContent='Lade…'; slotsEl.innerHTML='';
 
@@ -194,19 +202,38 @@
     }
   }
 
-  /* Modus zuerst prüfen. In „rot“ nie abmelden, sondern Warnung. */
+  /* === Auto-Abmeldung inkl. Sperrlogik === */
   async function tryAutoCheckout(times,status){
     const mode = await getSystemMode();
+    const name = linkChild;
+
+    // --- Sperrzustand prüfen (gilt immer, egal welcher Modus) ---
+    const lockRef = db.ref(`locks/${dateKey()}/${name}`);
+    const lockSnap = await lockRef.once('value');
+    const lock = lockSnap.val();
+    const now = Date.now();
+
+    if (lock && lock.until && now < lock.until) {
+      const restMin = Math.ceil((lock.until - now)/60000);
+      return `${name}: Dein Konto ist aufgrund von Fehlverhalten für ${restMin} Minuten gesperrt.`;
+    }
 
     if(mode === 'red'){
-      return "Die Abholzeit ist im gesperrten Modus nicht verfügbar. Bitte nutze das Terminal nicht im gesperrten Modus. Beim nächsten Versuch wird ein Mousedollar von deinem Konto entfernt!";
+      // Fehlversuche im roten Modus zählen (Fenster 5 Minuten)
+      let fails = (lock && lock.fails) || [];
+      fails = fails.filter(ts => now - ts < 5*60000);
+      fails.push(now);
+
+      if (fails.length >= 3){
+        await lockRef.set({ until: now + 5*60000, fails: [] });
+        return `${name}: Dein Konto ist aufgrund von Fehlverhalten für 5 Minuten gesperrt.`;
+      } else {
+        await lockRef.set({ fails });
+        return "Die Abholzeit ist im gesperrten Modus nicht verfügbar! Bitte nutze das Terminal nicht im gesperrten Modus sonst wird dein Konto vorübergehend deaktiviert.";
+      }
     }
 
-    if(mode !== 'green' && mode !== 'yellow'){
-      return "Abmeldung derzeit nicht verfügbar.";
-    }
-
-    const name=linkChild;
+    // Ab hier nur grün/gelb: zuerst erneut Sperre prüfen (oben schon abgedeckt)
     const setRef=db.ref(`abmeldungen/${dateKey()}/${name}`);
 
     if(!times || !times[name]) return `Unbekanntes Kind: ${name}`;
