@@ -26,6 +26,15 @@
   button.unlock-btn.active {
     background: #48bb78;
   }
+  /* NEU: Style für Status "Abmeldung möglich" */
+  .status-info {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #48bb78;
+    color: #fff;
+    white-space: nowrap;
+  }
   #info{text-align:center;margin:6px 0;color:#475569}
   .slot{background:var(--white);border-radius:10px;padding:10px 12px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
   .slot h2{margin:0 0 8px 0;font-size:16px;display:flex;justify-content:space-between;align-items:center;}
@@ -43,19 +52,31 @@
   /* ANGEPASSTER STYLE für die Nachrichten-Box */
   #link-msg{
     background:#fff;
-    padding:30px 26px; /* Mehr Platz */
-    border-radius:16px; /* Rundere Ecken */
-    box-shadow:0 4px 12px rgba(0,0,0,.15); /* Deutlicherer Schatten */
-    font-size:24px; /* Größere Schrift */
+    padding:30px 26px;
+    border-radius:16px;
+    box-shadow:0 4px 12px rgba(0,0,0,.15);
+    font-size:24px;
     text-align:center;
     line-height:1.4;
+    transition: background-color 0.3s ease; /* Für sanften Farbübergang */
   }
   #link-msg.locked { 
     background-color: #fcebeb; 
-    border: 3px solid #e53e3e; /* Deutlichere rote Umrandung */
+    border: 3px solid #e53e3e;
   } 
+  /* NEU: Farben für Statusmeldungen */
+  #link-msg.success { 
+    background-color: #ebf8f5; /* Hellgrün */
+    border: 3px solid #38a169; /* Dunkelgrün */
+    color: #38a169; /* Textfarbe Dunkelgrün */
+  }
+  #link-msg.already { 
+    background-color: #fffbeb; /* Hellgelb */
+    border: 3px solid #f6ad55; /* Gelb-Orange */
+    color: #f6ad55; /* Textfarbe Gelb-Orange */
+  }
 
-  /* NEUER STYLE: PROGRESS BAR */
+  /* PROGRESS BAR */
   .progress-container {
     background: #e2e8f0;
     border-radius: 8px;
@@ -66,17 +87,11 @@
   .progress-bar {
     height: 100%;
     width: 0%;
-    background: #48bb78; /* Grün */
+    background: #48bb78;
     transition: width 0.5s ease-out;
   }
   .progress-bar.warning {
-    background: #f6ad55; /* Orange, falls die Zeit knapp wird */
-  }
-  /* Diese Klasse wird nun nicht mehr im HTML erzeugt */
-  .progress-info {
-    font-size: 14px;
-    color: #64748b;
-    margin-top: 5px;
+    background: #f6ad55;
   }
 </style>
 </head>
@@ -102,21 +117,20 @@
 </div></div>
 
 <script>
-  /* === Abholsystem-DB (Zeiten & Abmeldungen) === */
+  /* === DB Configs (Unverändert) === */
   const appAbhol = firebase.initializeApp({
     apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
     databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
   }, "abhol");
   const dbAbhol = firebase.app("abhol").database();
 
-  /* === Systemmodus & Globale Sperre (Gesamt-DB) === */
   const appMode = firebase.initializeApp({
     apiKey:"AIzaSyAQaNKUa-RKvUcwlPpWnEyKxcVjYV6cZuU",
     databaseURL:"https://gesamt-dae4e-default-rtdb.europe-west1.firebasedatabase.app"
   }, "mode");
   const dbGesamt = firebase.app("mode").database();
 
-  /* === Utils === */
+  /* === Utils (Unverändert) === */
   function berlinParts(d=new Date()){
     const fmt = new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour12:false,
       year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'long'});
@@ -160,11 +174,15 @@
     qs('#dayModal').style.display='flex';
   }
 
-  // Angepasst: Fügt nun auch den Fortschrittsbalken und zusätzliche Infos ein.
-  function enterLinkMode(msg, isLocked=false, progressHTML=''){ 
-    // Der Inhalt wird mit <br> getrennt, falls progressHTML existiert, ansonsten nur die Nachricht.
+  // NEU/ANGEPASST: Fügt einen optionalen Status-Typ (success/already) für die Farbe hinzu.
+  function enterLinkMode(msg, isLocked=false, progressHTML='', statusType=null){ 
     linkMsgEl.innerHTML=msg + (progressHTML && !isLocked ? `<br>` : ``) + progressHTML;
-    linkMsgEl.classList.toggle('locked', isLocked);
+    
+    // Alte Klassen entfernen und neue hinzufügen
+    linkMsgEl.classList.remove('locked', 'success', 'already');
+    if (isLocked) linkMsgEl.classList.add('locked');
+    if (statusType) linkMsgEl.classList.add(statusType);
+    
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
     if (controls) controls.style.display='none';
@@ -267,18 +285,30 @@
 
       if(sortedTimes.length===0){ infoEl.textContent='Keine Einträge für heute.'; return; }
 
+      const nowMins = nowMinutes();
+
       sortedTimes.forEach(t=>{
         const slot=document.createElement('div'); slot.className='slot';
         
         let slotTitle = t==='—' ? 'ohne Zeit' : t+' Uhr';
         let buttonHTML = '';
-
+        
+        const targetMins = parseHHMM(t);
+        const allowedFromMins = targetMins !== null ? targetMins - 2 : null;
+        
+        // Button-Logik
         if (currentDay===todayName() && t !== '—') {
-            const isUnlocked = unlockedTimes.has(t);
-            const btnText = isUnlocked ? 'Rückgängig' : 'Abmelden jetzt ermöglichen';
-            const btnClass = isUnlocked ? 'unlock-btn active' : 'unlock-btn';
-            
-            buttonHTML = `<button class="${btnClass}" onclick="toggleTimeUnlock('${t}')">${btnText}</button>`;
+            if (targetMins !== null && nowMins >= allowedFromMins) {
+                // NEU: Abmeldezeit ist erreicht oder überschritten
+                buttonHTML = `<span class="status-info">Abmeldung möglich</span>`;
+            } else {
+                // Abmeldezeit liegt noch in der Zukunft
+                const isUnlocked = unlockedTimes.has(t);
+                const btnText = isUnlocked ? 'Rückgängig' : 'Abmelden jetzt ermöglichen';
+                const btnClass = isUnlocked ? 'unlock-btn active' : 'unlock-btn';
+                
+                buttonHTML = `<button class="${btnClass}" onclick="toggleTimeUnlock('${t}')">${btnText}</button>`;
+            }
         }
 
         slot.innerHTML=`<h2><span>${slotTitle}</span>${buttonHTML}</h2><ul class="names"></ul>`;
@@ -301,7 +331,7 @@
     }
   }
 
-  /* === Auto-Abmeldung inkl. NEUER Sperrlogik (unverändert) === */
+  /* === Auto-Abmeldung (mit Farbanpassung) === */
   async function tryAutoCheckout(times,status){
     const name = linkChild;
     const now = Date.now();
@@ -361,12 +391,14 @@
     return continueCheckout(times, status, name);
   }
 
-  // Angepasst: Redundante Texte im Fortschrittsbalken entfernt
+  // Angepasst: Farbanpassung der Statusmeldungen
   async function continueCheckout(times, status, name) {
     const setRef=dbAbhol.ref(`abmeldungen/${dateKey()}/${name}`);
 
     if(!times || !times[name]) return enterLinkMode(`Unbekanntes Kind: ${name}.`);
-    if(status && status[name]) return enterLinkMode(`${name}: bereits abgemeldet.`);
+    
+    // NEU: Farbe Gelb für "bereits abgemeldet"
+    if(status && status[name]) return enterLinkMode(`${name}: bereits abgemeldet.`, false, '', 'already');
 
     const otSnap=await dbAbhol.ref(`onetime/${dateKey()}/${name}`).once('value');
     const specialTime=otSnap.val();
@@ -388,7 +420,8 @@
       try{ 
         await setRef.set(true); 
         dbAbhol.ref(`linkFails/${dateKey()}/${name}`).set(null);
-        enterLinkMode(`${name}: erfolgreich abgemeldet.`); 
+        // NEU: Farbe Grün für "erfolgreich abgemeldet"
+        enterLinkMode(`${name}: erfolgreich abgemeldet.`, false, '', 'success'); 
       }
       catch{ enterLinkMode(`${name}: Abmeldung fehlgeschlagen.`); }
     }else{
@@ -407,7 +440,7 @@
       
       let progressClass = progress < 50 ? '' : 'warning'; 
       
-      // HTML für den Fortschrittsbalken - NUR BALKEN UND CONTAINER
+      // HTML für den Fortschrittsbalken
       const progressHTML = `
         <div class="progress-container">
           <div class="progress-bar ${progressClass}" style="width: ${progress.toFixed(0)}%;"></div>
