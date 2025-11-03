@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abholsystem – Basiszeiten Übersicht</title>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<style>
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:#f0f4f8;color:#1a202c}
+  .wrap{max-width:960px;margin:0 auto;padding:20px}
+  h1{margin:10px 0 20px 0;text-align:center}
+  #info{text-align:center;color:#64748b;margin-bottom:15px;}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  th, td{padding:12px 15px;text-align:left;border-bottom:1px solid #eee}
+  th{background:#e2e8f0;font-weight:600;color:#334155;}
+  tr:last-child td{border-bottom:none;}
+  .highlight{background-color:#fff7e6;} /* Um fehlende Zeiten hervorzuheben */
+  .no-data{text-align:center;color:#e53e3e;font-style:italic;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Basis-Abholzeiten Übersicht</h1>
+  <div id="info">Lade Daten aus Firebase...</div>
+  <table id="timeTable" style="display:none">
+    <thead>
+      <tr>
+        <th>Kind</th>
+        <th>Montag</th>
+        <th>Dienstag</th>
+        <th>Mittwoch</th>
+        <th>Donnerstag</th>
+        <th>Freitag</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody">
+      </tbody>
+  </table>
+</div>
+
+<script>
+  // Verwende die Firebase-Konfiguration des ABHOL-Systems (abholen.html)
+  const firebaseConfig = {
+    apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
+    databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const DAYS = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag"];
+  const tableBody = document.getElementById('tableBody');
+  const info = document.getElementById('info');
+  const timeTable = document.getElementById('timeTable');
+
+  async function loadBasisTimes(){
+    info.textContent = 'Lade...';
+    try{
+      const snap = await db.ref().once('value');
+      const data = snap.val() || {};
+      
+      const allChildren = new Set();
+      const childTimes = {};
+
+      // 1. Alle Kindesnamen sammeln und Zeiten strukturieren
+      DAYS.forEach(day => {
+        if(data[day] && typeof data[day]==='object'){
+          Object.entries(data[day]).forEach(([name, time]) => {
+            allChildren.add(name);
+            childTimes[name] = childTimes[name] || {};
+            childTimes[name][day] = time || '—'; // Setze '—' falls Zeit fehlt
+          });
+        }
+      });
+
+      const sortedChildren = Array.from(allChildren).sort((a, b) => a.localeCompare(b, 'de'));
+
+      if(sortedChildren.length === 0){
+        info.innerHTML = '<div class="no-data">Keine Kinder in der Datenbank gefunden.</div>';
+        return;
+      }
+      
+      // 2. Tabelle rendern
+      sortedChildren.forEach(name => {
+        const row = tableBody.insertRow();
+        
+        // Spalte: Name
+        let cell = row.insertCell();
+        cell.textContent = name;
+        cell.style.fontWeight = 'bold';
+
+        // Spalten: Wochentage
+        DAYS.forEach(day => {
+          const time = childTimes[name] ? (childTimes[name][day] || '—') : '—';
+          let cell = row.insertCell();
+          cell.textContent = time;
+
+          // Helles Gelb für fehlende/leere Zeiten zur schnellen Erkennung
+          if (time === '—' || time === '') {
+            cell.classList.add('highlight');
+          }
+        });
+      });
+
+      info.textContent = 'Daten erfolgreich geladen. Leere Felder (—) bedeuten, dass keine Basiszeit hinterlegt ist.';
+      timeTable.style.display = 'table';
+
+    } catch(e) {
+      console.error("Fehler beim Laden der Basiszeiten:", e);
+      info.textContent = 'Fehler beim Laden der Daten. Bitte prüfen Sie Ihre Firebase-Verbindung und -Regeln.';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', loadBasisTimes);
+</script>
+</body>
+</html>
