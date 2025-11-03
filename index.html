@@ -14,9 +14,22 @@
   .row{display:flex;gap:8px;justify-content:center;margin:8px 0}
   button{padding:9px 14px;border:0;border-radius:999px;background:var(--accent);color:#fff;cursor:pointer}
   button.secondary{background:#64748b}
+  /* NEUER STYLE FÜR GELBEN BUTTON */
+  button.unlock-btn {
+    background: #f6ad55; /* Gelb-Orange */
+    color: #fff;
+    font-size: 14px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button.unlock-btn.active {
+    background: #48bb78; /* Grün für Rückgängig */
+  }
   #info{text-align:center;margin:6px 0;color:#475569}
   .slot{background:var(--white);border-radius:10px;padding:10px 12px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-  .slot h2{margin:0 0 8px 0;font-size:16px}
+  .slot h2{margin:0 0 8px 0;font-size:16px;display:flex;justify-content:space-between;align-items:center;} /* Angepasst */
+  .slot h2 span { line-height: 1; }
   .names{list-style:none;margin:0;padding:0}
   .names li{padding:4px 0;font-size:16px;line-height:1.35}
   .strike{text-decoration:line-through;color:#e53e3e}
@@ -27,7 +40,7 @@
   .days button{background:#e2e8f0;color:#334155}
   .days button.active{background:#38a169;color:#fff}
   #link-view{display:none;min-height:50vh;display:flex;align-items:center;justify-content:center;}
-  /* NEU: Hintergrundfarbe für Sperr-Nachricht */
+  /* Hintergrundfarbe für Sperr-Nachricht */
   #link-msg{background:#fff;padding:22px 26px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:20px;text-align:center;}
   #link-msg.locked { background-color: #fcebeb; border: 2px solid #e53e3e; } 
 </style>
@@ -92,6 +105,9 @@
   const titleEl=qs('#title'), infoEl=qs('#info'), slotsEl=qs('#slots');
   const controls = document.getElementById('controls');
   const linkMsgEl = document.getElementById('link-msg');
+  
+  // NEU: Status für freigeschaltete Zeiten
+  let unlockedTimes = new Set(); 
 
   qs('#chooseDayBtn').onclick=()=>openDayModal();
   qs('#closeDay').onclick=()=>qs('#dayModal').style.display='none';
@@ -122,6 +138,46 @@
     history.pushState(null,'',location.href);
     window.addEventListener('popstate',()=>{ history.pushState(null,'',location.href); });
   }
+  
+  // NEU: Status der Freischaltungen laden
+  async function loadUnlocks(){
+    unlockedTimes.clear();
+    // Nur für den aktuellen Tag relevant
+    if(currentDay!==todayName()) return;
+
+    try {
+        const snap = await dbAbhol.ref(`timeUnlocks/${dateKey()}`).once('value');
+        const unlocks = snap.val() || {};
+        Object.keys(unlocks).forEach(time => {
+            if(unlocks[time]===true) unlockedTimes.add(time);
+        });
+    } catch(e) {
+        console.error("Fehler beim Laden der Freischaltungen", e);
+    }
+  }
+
+  // NEU: Freischaltung umschalten
+  async function toggleTimeUnlock(time){
+    const ref = dbAbhol.ref(`timeUnlocks/${dateKey()}/${time}`);
+    const isUnlocked = unlockedTimes.has(time);
+
+    try{
+        if(isUnlocked){
+            await ref.set(null); // Freischaltung entfernen
+            unlockedTimes.delete(time);
+            infoEl.textContent = `Sofort-Abmeldung für ${time} Uhr deaktiviert.`;
+        } else {
+            await ref.set(true); // Freischaltung aktivieren
+            unlockedTimes.add(time);
+            infoEl.textContent = `Sofort-Abmeldung für ${time} Uhr aktiviert!`;
+        }
+        // Neu laden, um Anzeige zu aktualisieren
+        loadDay(); 
+    } catch(e) {
+        infoEl.textContent = 'Fehler beim Umschalten.';
+        console.error(e);
+    }
+  }
 
   async function loadDay(){
     titleEl.textContent=`Heute: ${currentDay}`;
@@ -129,6 +185,9 @@
 
     if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; slotsEl.innerHTML=''; return; }
     infoEl.textContent='Lade…'; slotsEl.innerHTML='';
+    
+    // NEU: Freischaltungen laden, falls es heute ist
+    if(currentDay===todayName()){ await loadUnlocks(); } else { unlockedTimes.clear(); }
 
     try{
       const timesSnap=await dbAbhol.ref(currentDay).once('value');
@@ -172,7 +231,21 @@
 
       sortedTimes.forEach(t=>{
         const slot=document.createElement('div'); slot.className='slot';
-        slot.innerHTML=`<h2>${t==='—'?'ohne Zeit':t+' Uhr'}</h2><ul class="names"></ul>`;
+        
+        // NEU: Button-Logik hinzufügen
+        let slotTitle = t==='—' ? 'ohne Zeit' : t+' Uhr';
+        let buttonHTML = '';
+
+        if (isAdmin && currentDay===todayName() && t !== '—') {
+            const isUnlocked = unlockedTimes.has(t);
+            const btnText = isUnlocked ? 'Rückgängig' : 'Abmelden jetzt ermöglichen';
+            const btnClass = isUnlocked ? 'unlock-btn active' : 'unlock-btn';
+            
+            buttonHTML = `<button class="${btnClass}" onclick="toggleTimeUnlock('${t}')">${btnText}</button>`;
+        }
+
+        slot.innerHTML=`<h2><span>${slotTitle}</span>${buttonHTML}</h2><ul class="names"></ul>`;
+        
         const ul=slot.querySelector('.names');
         groups[t].sort((a,b)=>a.name.localeCompare(b.name,'de')).forEach(r=>{
           const li=document.createElement('li');
@@ -194,6 +267,7 @@
   /* === Auto-Abmeldung inkl. NEUER Sperrlogik === */
   async function tryAutoCheckout(times,status){
     const name = linkChild;
+    // ... (Logik zur Sperrprüfung bleibt unverändert) ...
     const now = Date.now();
     const systemModeRef = dbGesamt.ref("systemmode/state");
     const kindRef = dbGesamt.ref(`kinder/${name}`);
@@ -276,6 +350,7 @@
     return continueCheckout(times, status, name);
   }
 
+  // NEU/ANGEPASST: continueCheckout prüft jetzt Freischaltung
   async function continueCheckout(times, status, name) {
     const setRef=dbAbhol.ref(`abmeldungen/${dateKey()}/${name}`);
 
@@ -286,11 +361,21 @@
     const specialTime=otSnap.val();
     const baseTime=String(times[name]);
     const t=specialTime || baseTime;
+    
+    // NEU: Freischaltungsstatus für die Abholzeit des Kindes prüfen
+    let isTimeUnlocked = false;
+    if (t !== '—') {
+        const unlockSnap = await dbAbhol.ref(`timeUnlocks/${dateKey()}/${t}`).once('value');
+        isTimeUnlocked = unlockSnap.val() === true;
+    }
+
     const target=parseHHMM(t);
+    // Wartezeit ignorieren, wenn Freischaltung aktiv ist (oder target null ist)
     const allowedFrom=target!==null ? target-2 : null;
     const now = nowMinutes();
 
-    if(isAdmin || allowedFrom===null || now >= allowedFrom){
+    // Bedingung: isAdmin ODER Freischaltung ist aktiv ODER (allowedFrom ist null ODER aktuelle Zeit ist groß genug)
+    if(isAdmin || isTimeUnlocked || allowedFrom===null || now >= allowedFrom){
       try{ 
         await setRef.set(true); 
         // Falls Fehlversuch-Zähler existiert, löschen
