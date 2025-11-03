@@ -72,6 +72,7 @@
   .progress-bar.warning {
     background: #f6ad55; /* Orange, falls die Zeit knapp wird */
   }
+  /* Diese Klasse wird nun nicht mehr im HTML erzeugt */
   .progress-info {
     font-size: 14px;
     color: #64748b;
@@ -162,7 +163,7 @@
   // Angepasst: Fügt nun auch den Fortschrittsbalken und zusätzliche Infos ein.
   function enterLinkMode(msg, isLocked=false, progressHTML=''){ 
     // Der Inhalt wird mit <br> getrennt, falls progressHTML existiert, ansonsten nur die Nachricht.
-    linkMsgEl.innerHTML=msg + (progressHTML ? `<br>` : ``) + progressHTML;
+    linkMsgEl.innerHTML=msg + (progressHTML && !isLocked ? `<br>` : ``) + progressHTML;
     linkMsgEl.classList.toggle('locked', isLocked);
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
@@ -360,7 +361,7 @@
     return continueCheckout(times, status, name);
   }
 
-  // Angepasst: Warte-Nachricht und Fortschrittsbalken-Logik
+  // Angepasst: Redundante Texte im Fortschrittsbalken entfernt
   async function continueCheckout(times, status, name) {
     const setRef=dbAbhol.ref(`abmeldungen/${dateKey()}/${name}`);
 
@@ -387,7 +388,6 @@
       try{ 
         await setRef.set(true); 
         dbAbhol.ref(`linkFails/${dateKey()}/${name}`).set(null);
-        // NEU: Erfolgsmeldung ohne Emojis/Sternchen
         enterLinkMode(`${name}: erfolgreich abgemeldet.`); 
       }
       catch{ enterLinkMode(`${name}: Abmeldung fehlgeschlagen.`); }
@@ -407,16 +407,14 @@
       
       let progressClass = progress < 50 ? '' : 'warning'; 
       
-      // HTML für den Fortschrittsbalken
+      // HTML für den Fortschrittsbalken - NUR BALKEN UND CONTAINER
       const progressHTML = `
-        <div class="progress-info">Erlaubte Abholzeit: ${t} Uhr</div>
         <div class="progress-container">
           <div class="progress-bar ${progressClass}" style="width: ${progress.toFixed(0)}%;"></div>
         </div>
-        <div class="progress-info">Deine Abholzeit rückt näher...</div>
       `;
       
-      // NEU: Textnachricht im gewünschten Format
+      // Textnachricht im gewünschten Format
       const waitMessage = `${name} bitte noch ${wait} Minuten warten.`;
       const timeMessage = `Deine Abholzeit für heute ist ${t} Uhr.`;
       
