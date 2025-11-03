@@ -14,18 +14,17 @@
   .row{display:flex;gap:8px;justify-content:center;margin:8px 0}
   button{padding:9px 14px;border:0;border-radius:999px;background:var(--accent);color:#fff;cursor:pointer}
   button.secondary{background:#64748b}
-  /* NEUER STYLE: KLEINER */
   button.unlock-btn {
-    background: #f6ad55; /* Gelb-Orange */
+    background: #f6ad55;
     color: #fff;
-    font-size: 11px; /* Kleiner */
-    padding: 4px 8px; /* Weniger Polsterung */
+    font-size: 11px;
+    padding: 4px 8px;
     border-radius: 6px;
     cursor: pointer;
-    white-space: nowrap; /* Button-Text nicht umbrechen */
+    white-space: nowrap;
   }
   button.unlock-btn.active {
-    background: #48bb78; /* Grün für Rückgängig */
+    background: #48bb78;
   }
   #info{text-align:center;margin:6px 0;color:#475569}
   .slot{background:var(--white);border-radius:10px;padding:10px 12px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.06)}
@@ -41,8 +40,43 @@
   .days button{background:#e2e8f0;color:#334155}
   .days button.active{background:#38a169;color:#fff}
   #link-view{display:none;min-height:50vh;display:flex;align-items:center;justify-content:center;}
-  #link-msg{background:#fff;padding:22px 26px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:20px;text-align:center;}
-  #link-msg.locked { background-color: #fcebeb; border: 2px solid #e53e3e; } 
+  /* ANGEPASSTER STYLE für die Nachrichten-Box */
+  #link-msg{
+    background:#fff;
+    padding:30px 26px; /* Mehr Platz */
+    border-radius:16px; /* Rundere Ecken */
+    box-shadow:0 4px 12px rgba(0,0,0,.15); /* Deutlicherer Schatten */
+    font-size:24px; /* Größere Schrift */
+    text-align:center;
+    line-height:1.4;
+  }
+  #link-msg.locked { 
+    background-color: #fcebeb; 
+    border: 3px solid #e53e3e; /* Deutlichere rote Umrandung */
+  } 
+
+  /* NEUER STYLE: PROGRESS BAR */
+  .progress-container {
+    background: #e2e8f0;
+    border-radius: 8px;
+    height: 16px;
+    margin: 15px 0 5px 0;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: #48bb78; /* Grün */
+    transition: width 0.5s ease-out;
+  }
+  .progress-bar.warning {
+    background: #f6ad55; /* Orange, falls die Zeit knapp wird */
+  }
+  .progress-info {
+    font-size: 14px;
+    color: #64748b;
+    margin-top: 5px;
+  }
 </style>
 </head>
 <body>
@@ -100,8 +134,6 @@
   let currentDay=todayName();
   const params=new URLSearchParams(location.search);
   const linkChild=params.get('child');
-  // WICHTIG: Die isAdmin-Variable wird für die Checkout-Logik behalten, 
-  // aber für die Button-Anzeige nicht mehr genutzt, damit der Button immer sichtbar ist.
   const isAdmin=params.get('admin')==='1'; 
 
   const titleEl=qs('#title'), infoEl=qs('#info'), slotsEl=qs('#slots');
@@ -127,8 +159,9 @@
     qs('#dayModal').style.display='flex';
   }
 
-  function enterLinkMode(msg, isLocked=false){
-    linkMsgEl.innerHTML=msg;
+  // ANGEPASST: Fügt nun auch den Fortschrittsbalken und zusätzliche Infos ein.
+  function enterLinkMode(msg, isLocked=false, progressHTML=''){ 
+    linkMsgEl.innerHTML=msg + (isLocked ? '' : progressHTML);
     linkMsgEl.classList.toggle('locked', isLocked);
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
@@ -140,7 +173,7 @@
     window.addEventListener('popstate',()=>{ history.pushState(null,'',location.href); });
   }
   
-  // Status der Freischaltungen laden
+  // Status der Freischaltungen laden (unverändert)
   async function loadUnlocks(){
     unlockedTimes.clear();
     if(currentDay!==todayName()) return;
@@ -156,11 +189,8 @@
     }
   }
 
-  // Freischaltung umschalten und sofort neu laden
-  window.toggleTimeUnlock = async function(time){ // Global machen, damit onclick funktioniert
-    // Eine einfache Sicherheitsprüfung, falls kein Admin-Recht existiert, 
-    // kann hier nicht durchgeführt werden, da die Funktion ja immer sichtbar sein soll.
-    // Die Firebase-Regeln MÜSSEN den Schreibzugriff auf Admins beschränken!
+  // Freischaltung umschalten (unverändert, außer window. davor)
+  window.toggleTimeUnlock = async function(time){ 
     if (currentDay !== todayName()) {
         infoEl.textContent = 'Aktion nur für den heutigen Tag erlaubt.';
         return;
@@ -182,8 +212,6 @@
         
         loadDay(); 
     } catch(e) {
-        // HINWEIS: Wenn hier ein "Permission denied" Fehler auftritt, 
-        // musst du die Firebase-Regeln anpassen, um den Schreibzugriff zu erlauben.
         infoEl.textContent = 'Fehler beim Umschalten. Bitte Firebase-Regeln prüfen.';
         console.error(e);
     }
@@ -240,11 +268,9 @@
       sortedTimes.forEach(t=>{
         const slot=document.createElement('div'); slot.className='slot';
         
-        // Button-Logik: WICHTIG: isAdmin-Prüfung wurde entfernt
         let slotTitle = t==='—' ? 'ohne Zeit' : t+' Uhr';
         let buttonHTML = '';
 
-        // Der Button wird jetzt immer angezeigt, wenn es der heutige Tag ist und eine Zeit existiert
         if (currentDay===todayName() && t !== '—') {
             const isUnlocked = unlockedTimes.has(t);
             const btnText = isUnlocked ? 'Rückgängig' : 'Abmelden jetzt ermöglichen';
@@ -301,6 +327,7 @@
       } else {
         msg = `${name}: Dein Konto ist gesperrt! Grund: ${kindData.sperrGrund || 'Nicht angegeben'}.`;
       }
+      // enterLinkMode(msg, true) wird für Sperren verwendet
       enterLinkMode(msg, true);
       return;
     }
@@ -333,7 +360,7 @@
     return continueCheckout(times, status, name);
   }
 
-  // Finaler Checkout
+  // ANGEPASST: Fügt die Fortschrittsbalken-Logik hinzu
   async function continueCheckout(times, status, name) {
     const setRef=dbAbhol.ref(`abmeldungen/${dateKey()}/${name}`);
 
@@ -345,7 +372,6 @@
     const baseTime=String(times[name]);
     const t=specialTime || baseTime;
     
-    // Freischaltungsstatus für die Abholzeit des Kindes prüfen
     let isTimeUnlocked = false;
     if (t !== '—') {
         const unlockSnap = await dbAbhol.ref(`timeUnlocks/${dateKey()}/${t}`).once('value');
@@ -353,20 +379,53 @@
     }
 
     const target=parseHHMM(t);
-    const allowedFrom=target!==null ? target-2 : null;
+    const allowedFrom=target!==null ? target-2 : null; // 2 Minuten Toleranz
     const now = nowMinutes();
 
-    // Bedingung: isAdmin ODER Freischaltung ist aktiv ODER (allowedFrom ist null ODER aktuelle Zeit ist groß genug)
+    // Erfolgreiche Abmeldung oder Admin-Override
     if(isAdmin || isTimeUnlocked || allowedFrom===null || now >= allowedFrom){
       try{ 
         await setRef.set(true); 
         dbAbhol.ref(`linkFails/${dateKey()}/${name}`).set(null);
-        enterLinkMode(`${name}: erfolgreich abgemeldet.`); 
+        // Erfolgsmeldung mit einfacherer Formatierung
+        enterLinkMode(`✅ ${name}: **erfolgreich abgemeldet!**`); 
       }
       catch{ enterLinkMode(`${name}: Abmeldung fehlgeschlagen.`); }
     }else{
+      // Wartezustand
       const wait=Math.max(0, allowedFrom-now);
-      enterLinkMode(`${name}: bitte noch ${wait} Min warten.`);
+      
+      // NEUE VISUELLE LOGIK
+      // Annahme: Die Gesamtwartezeit beginnt um 13:00 Uhr (780 Minuten)
+      // Das Kind muss warten bis allowedFrom.
+      // Die gesamte Warte-Spanne für die Fortschrittsanzeige wird von 780 bis allowedFrom berechnet, 
+      // aber eine visuelle Darstellung, die sich auf allowedFrom stützt, ist genauer für das Warten.
+
+      // Wir nehmen als 100%-Punkt die erlaubte Abholzeit (allowedFrom)
+      // Die "Startzeit" der Warte-Toleranz ist willkürlich, wir wählen 12:00 Uhr (720) 
+      // als allgemeinen Startpunkt, um ein fließendes Gefühl zu erzeugen, wenn allowedFrom > 720.
+      const startTimeMinutes = 720; // 12:00 Uhr (willkürlicher, aber früher Startpunkt)
+      const totalSpan = allowedFrom - startTimeMinutes;
+      const elapsed = now - startTimeMinutes;
+
+      // Fortschritt: Wie viel Zeit zwischen 12:00 Uhr und allowedFrom ist vergangen
+      let progress = 0;
+      if (totalSpan > 0) {
+        progress = Math.min(100, Math.max(0, (elapsed / totalSpan) * 100));
+      }
+      
+      let progressClass = progress < 50 ? '' : 'warning'; // Orange, wenn die Zeit knapp wird (unter 50% der Wartezeit)
+      
+      // HTML für den Fortschrittsbalken
+      const progressHTML = `
+        <div class="progress-info">Erlaubte Abholzeit: **${t} Uhr**</div>
+        <div class="progress-container">
+          <div class="progress-bar ${progressClass}" style="width: ${progress.toFixed(0)}%;"></div>
+        </div>
+        <div class="progress-info">Deine Abholzeit rückt näher...</div>
+      `;
+
+      enterLinkMode(`⏳ **${name}**: bitte noch **${wait} Min** warten.`, false, progressHTML);
     }
   }
 
