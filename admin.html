@@ -14,7 +14,7 @@
   .card{background:#fff;border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,.08)}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
   input,select{padding:10px;border:1px solid #cbd5e0;border-radius:8px;font-size:15px}
-  button{padding:10px 14px;border:0;border-radius:8px;background:#4299e1;color:#fff;cursor:pointer;transition:background 0.2s}
+  button{padding:10px 14px;border:0;border-radius:8px;background:#4299e1;color:#fff;cursor:pointer}
   button:hover{background:#3182ce}
   .danger{background:#e53e3e}
   .danger:hover{background:#c53030}
@@ -22,28 +22,11 @@
   li{padding:6px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee}
   .muted{color:#64748b;font-size:14px}
   .spacer{height:28px;background:#fff;border-radius:10px;margin:16px 0;box-shadow:0 1px 4px rgba(0,0,0,.04)}
-  
-  /* Spezielle Styles für den Sperr-Button */
-  #systemLockBtn {
-    font-size: 18px; 
-    padding: 16px;
-    font-weight: bold;
-    width: 100%;
-  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Admin – Abholsystem</h1>
-
-  <!-- 0) NEU: System-Sperre -->
-  <div class="card" id="lock-card" style="border: 2px solid #e53e3e;">
-    <h2 style="color: #e53e3e;">Tages-Sperre (Heute)</h2>
-    <div>
-      <button id="systemLockBtn" class="danger">Lade Status...</button>
-    </div>
-    <div class="muted" style="margin-top:8px;">Wenn aktiviert, ist das System für den heutigen Tag komplett gesperrt. Auf dem Terminal erscheint ein großes <b>X</b> und kein Kind kann sich abmelden.</div>
-  </div>
 
   <!-- 1) Einmalige Zeit setzen -->
   <div class="card" id="onetime-card">
@@ -59,6 +42,7 @@
     <div class="muted">Gilt nur für das ausgewählte Datum. Überschreibt an diesem Tag die Basiszeit.</div>
   </div>
 
+  <!-- Weißer Abstand -->
   <div class="spacer" aria-hidden="true"></div>
 
   <!-- 2) Kind hinzufügen -->
@@ -111,36 +95,6 @@
   const otChild=qs('#otChild'), otDate=qs('#otDate'), otTime=qs('#otTime');
   const childList=qs('#childList'), info=qs('#adminInfo');
 
-  // NEU: Datum-Helfer für die Sperre
-  function berlinParts(d=new Date()){
-    const fmt = new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour12:false,
-      year:'numeric',month:'2-digit',day:'2-digit'});
-    const parts = fmt.formatToParts(d); const get=t=>parts.find(p=>p.type===t)?.value;
-    return {y:Number(get('year')), m:get('month'), d:get('day')};
-  }
-  function dateKey(){ const p=berlinParts(); return `${p.y}-${p.m}-${p.d}`; }
-
-  // NEU: Logik für System-Sperre
-  const lockBtn = qs('#systemLockBtn');
-  let isSystemLocked = false;
-  
-  // Höre auf Änderungen in der Datenbank für den heutigen Tag
-  db.ref(`dayLocks/${dateKey()}`).on('value', snap => {
-      isSystemLocked = snap.val() === true;
-      if(isSystemLocked) {
-          lockBtn.textContent = 'Sperre aufheben (System ist momentan GESPERRT)';
-          lockBtn.style.background = '#48bb78'; // Grün zum Entsperren
-      } else {
-          lockBtn.textContent = 'System für heute sperren';
-          lockBtn.style.background = '#e53e3e'; // Rot zum Sperren
-      }
-  });
-
-  // Umschalten beim Klick
-  lockBtn.onclick = () => {
-      db.ref(`dayLocks/${dateKey()}`).set(!isSystemLocked);
-  };
-
   let allChildren=new Set();
 
   async function loadChildren(){
@@ -178,6 +132,7 @@
     });
   }
 
+  // Kind hinzufügen (legt leere Zeiten auf allen Tagen an)
   qs('#addChildBtn').onclick=async()=>{
     const name=qs('#newChild').value.trim();
     if(!name){info.textContent='Bitte Namen eingeben.';return;}
@@ -193,6 +148,7 @@
     }catch(e){info.textContent='Fehler beim Hinzufügen.';}
   };
 
+  // Basiszeit setzen
   qs('#admSave').onclick=async()=>{
     const name=admChild.value, day=admDay.value, time=admTime.value;
     if(!name||!day||!time){info.textContent='Bitte alle Felder füllen.';return;}
@@ -201,6 +157,7 @@
     catch(e){info.textContent='Fehler beim Speichern.';}
   };
 
+  // Einmalige Zeit setzen
   qs('#otSave').onclick=async()=>{
     const name=otChild.value, date=otDate.value, time=otTime.value;
     if(!name||!date||!time){info.textContent='Bitte alle Felder füllen.';return;}
@@ -209,6 +166,7 @@
     catch(e){info.textContent='Fehler beim Speichern.';}
   };
 
+  // Kind löschen (nur aus den Wochentagen)
   async function deleteChild(name){
     if(!confirm(`„${name}“ wirklich löschen?`)) return;
     info.textContent='Lösche…';
