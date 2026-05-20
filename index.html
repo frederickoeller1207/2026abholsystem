@@ -26,6 +26,7 @@
   button.unlock-btn.active {
     background: #48bb78;
   }
+  /* NEU: Style für Status "Abmeldung möglich" */
   .status-info {
     font-size: 11px;
     padding: 4px 8px;
@@ -47,8 +48,8 @@
   .days{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:8px}
   .days button{background:#e2e8f0;color:#334155}
   .days button.active{background:#38a169;color:#fff}
-  #link-view{display:none;min-height:50vh;align-items:center;justify-content:center;}
-  
+  #link-view{display:none;min-height:50vh;display:flex;align-items:center;justify-content:center;}
+  /* ANGEPASSTER STYLE für die Nachrichten-Box */
   #link-msg{
     background:#fff;
     padding:30px 26px;
@@ -57,38 +58,44 @@
     font-size:24px;
     text-align:center;
     line-height:1.4;
-    transition: background-color 0.3s ease;
+    transition: background-color 0.3s ease; /* Für sanften Farbübergang */
   }
-  #link-msg.locked { background-color: #fcebeb; border: 3px solid #e53e3e; } 
-  #link-msg.success { background-color: #ebf8f5; border: 3px solid #38a169; color: #38a169; }
-  #link-msg.already { background-color: #fffbeb; border: 3px solid #f6ad55; color: #f6ad55; }
-
-  .progress-container { background: #e2e8f0; border-radius: 8px; height: 16px; margin: 15px 0 5px 0; overflow: hidden; }
-  .progress-bar { height: 100%; width: 0%; background: #48bb78; transition: width 0.5s ease-out; }
-  .progress-bar.warning { background: #f6ad55; }
-
-  /* NEU: Toast-Popup für Freischaltungen */
-  .toast {
-    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-    background: #38a169; color: #fff; padding: 12px 24px; border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,.2); z-index: 2000; font-weight: bold;
-    opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
+  #link-msg.locked { 
+    background-color: #fcebeb; 
+    border: 3px solid #e53e3e;
+  } 
+  /* NEU: Farben für Statusmeldungen */
+  #link-msg.success { 
+    background-color: #ebf8f5; /* Hellgrün */
+    border: 3px solid #38a169; /* Dunkelgrün */
+    color: #38a169; /* Textfarbe Dunkelgrün */
   }
-  .toast.show { opacity: 1; }
-
-  /* NEU: Sperrbildschirm (Großes X) */
-  #lock-screen {
-    display: none; flex-direction: column; align-items: center; justify-content: center;
-    min-height: 60vh; text-align: center; margin-top: 20px;
+  #link-msg.already { 
+    background-color: #fffbeb; /* Hellgelb */
+    border: 3px solid #f6ad55; /* Gelb-Orange */
+    color: #f6ad55; /* Textfarbe Gelb-Orange */
   }
-  .big-x { font-size: 120px; color: #e53e3e; line-height: 1; margin-bottom: 20px; font-weight: 900; }
-  .lock-text { font-size: 26px; color: #1a202c; font-weight: bold; }
+
+  /* PROGRESS BAR */
+  .progress-container {
+    background: #e2e8f0;
+    border-radius: 8px;
+    height: 16px;
+    margin: 15px 0 5px 0;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: #48bb78;
+    transition: width 0.5s ease-out;
+  }
+  .progress-bar.warning {
+    background: #f6ad55;
+  }
 </style>
 </head>
 <body>
-<!-- NEU: Toast Notification -->
-<div id="toast" class="toast"></div>
-
 <div class="wrap">
   <h1 id="title">Tagesansicht</h1>
 
@@ -101,12 +108,6 @@
   <div id="info">Lade…</div>
   <div id="slots"></div>
   <div id="link-view"><div id="link-msg"></div></div>
-
-  <!-- NEU: Sperrbildschirm -->
-  <div id="lock-screen">
-    <div class="big-x">X</div>
-    <div class="lock-text">Das Abmelden ist im Moment nicht möglich</div>
-  </div>
 </div>
 
 <div id="dayModal" class="modal"><div class="box">
@@ -116,6 +117,7 @@
 </div></div>
 
 <script>
+  /* === DB Configs (Unverändert) === */
   const appAbhol = firebase.initializeApp({
     apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
     databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
@@ -128,6 +130,7 @@
   }, "mode");
   const dbGesamt = firebase.app("mode").database();
 
+  /* === Utils (Unverändert) === */
   function berlinParts(d=new Date()){
     const fmt = new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour12:false,
       year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'long'});
@@ -153,11 +156,6 @@
   const linkMsgEl = document.getElementById('link-msg');
   
   let unlockedTimes = new Set(); 
-  
-  // NEU: Globale Variablen für Sperre und Listener
-  let isSystemLocked = false;
-  let dayLockRef = null;
-  let activeUnlockRef = null;
 
   qs('#chooseDayBtn').onclick=()=>openDayModal();
   qs('#closeDay').onclick=()=>qs('#dayModal').style.display='none';
@@ -176,16 +174,11 @@
     qs('#dayModal').style.display='flex';
   }
 
-  // NEU: Toast-Funktion anzeigen
-  function showToast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => { t.classList.remove('show'); }, 4000);
-  }
-
+  // NEU/ANGEPASST: Fügt einen optionalen Status-Typ (success/already) für die Farbe hinzu.
   function enterLinkMode(msg, isLocked=false, progressHTML='', statusType=null){ 
     linkMsgEl.innerHTML=msg + (progressHTML && !isLocked ? `<br>` : ``) + progressHTML;
+    
+    // Alte Klassen entfernen und neue hinzufügen
     linkMsgEl.classList.remove('locked', 'success', 'already');
     if (isLocked) linkMsgEl.classList.add('locked');
     if (statusType) linkMsgEl.classList.add(statusType);
@@ -199,110 +192,59 @@
     history.pushState(null,'',location.href);
     window.addEventListener('popstate',()=>{ history.pushState(null,'',location.href); });
   }
-
-  // NEU: Listener für System-Sperre und Live-Freischaltungen
-  function updateRealtimeRefs() {
-    if(dayLockRef) { dayLockRef.off(); dayLockRef = null; }
-    if(activeUnlockRef) { activeUnlockRef.off(); activeUnlockRef = null; }
-
-    if(currentDay === todayName()) {
-      // 1. Systemsperre-Listener
-      dayLockRef = dbAbhol.ref(`dayLocks/${dateKey()}`);
-      dayLockRef.on('value', snap => {
-        isSystemLocked = snap.val() === true;
-        const lockScreen = qs('#lock-screen');
-        
-        if(isSystemLocked) {
-          slotsEl.style.display = 'none';
-          if(controls) controls.style.display = 'none';
-          infoEl.style.display = 'none';
-          
-          if(linkChild) {
-            enterLinkMode(`Das Abmelden ist im Moment nicht möglich`, true);
-          } else {
-            lockScreen.style.display = 'flex';
-          }
-        } else {
-          lockScreen.style.display = 'none';
-          infoEl.style.display = 'block';
-          if(!linkChild && controls) controls.style.display = 'flex';
-          slotsEl.style.display = 'block';
-          
-          // Ansicht neu laden, wenn wir nicht im Link-Modus sind
-          if(!linkChild) loadDay(true);
-        }
-      });
-
-      // 2. Zeit-Freischaltungs-Listener
-      activeUnlockRef = dbAbhol.ref(`timeUnlocks/${dateKey()}`);
-      let initialLoad = true;
-      
-      activeUnlockRef.on('child_added', snap => {
-        const time = snap.key;
-        unlockedTimes.add(time);
-        if(!initialLoad) {
-          showToast(`${time} Uhr abmelden vom Admin freigegeben`);
-          // Buttons sofort aktualisieren (nur im Haupt-Tablet)
-          if(!linkChild && !isSystemLocked) loadDay(true);
-        }
-      });
-      activeUnlockRef.on('child_removed', snap => {
-        unlockedTimes.delete(snap.key);
-        if(!initialLoad && !linkChild && !isSystemLocked) loadDay(true);
-      });
-      activeUnlockRef.once('value', () => { initialLoad = false; });
-    } else {
-      isSystemLocked = false;
-      qs('#lock-screen').style.display = 'none';
-    }
-  }
   
+  // Status der Freischaltungen laden (unverändert)
   async function loadUnlocks(){
     unlockedTimes.clear();
     if(currentDay!==todayName()) return;
+
     try {
         const snap = await dbAbhol.ref(`timeUnlocks/${dateKey()}`).once('value');
         const unlocks = snap.val() || {};
         Object.keys(unlocks).forEach(time => {
             if(unlocks[time]===true) unlockedTimes.add(time);
         });
-    } catch(e) { console.error(e); }
+    } catch(e) {
+        console.error("Fehler beim Laden der Freischaltungen", e);
+    }
   }
 
+  // Freischaltung umschalten (unverändert)
   window.toggleTimeUnlock = async function(time){ 
-    if (currentDay !== todayName()) return;
+    if (currentDay !== todayName()) {
+        infoEl.textContent = 'Aktion nur für den heutigen Tag erlaubt.';
+        return;
+    }
+    
     const ref = dbAbhol.ref(`timeUnlocks/${dateKey()}/${time}`);
     const isUnlocked = unlockedTimes.has(time);
+
     infoEl.textContent = 'Speichere Status...';
+
     try{
-        if(isUnlocked) await ref.set(null);
-        else await ref.set(true);
-    } catch(e) { console.error(e); }
+        if(isUnlocked){
+            await ref.set(null);
+            infoEl.textContent = `Sofort-Abmeldung für ${time} Uhr deaktiviert. Lade neu...`;
+        } else {
+            await ref.set(true);
+            infoEl.textContent = `Sofort-Abmeldung für ${time} Uhr aktiviert! Lade neu...`;
+        }
+        
+        loadDay(); 
+    } catch(e) {
+        infoEl.textContent = 'Fehler beim Umschalten. Bitte Firebase-Regeln prüfen.';
+        console.error(e);
+    }
   }
 
-  // ANGEPASST: loadDay beachtet nun den Sperr-Zustand und Realtime-Listener
-  async function loadDay(skipRefs = false){
+  async function loadDay(){
     titleEl.textContent=`Heute: ${currentDay}`;
-    
-    // Setze Listener auf (falls nicht durch einen internen Reload aufgerufen)
-    if (!skipRefs) updateRealtimeRefs();
-
     if (!linkChild) { controls.style.display='flex'; } else { controls.style.display='none'; }
+
     if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; slotsEl.innerHTML=''; return; }
-    
     infoEl.textContent='Lade…'; slotsEl.innerHTML='';
     
-    if(currentDay===todayName()){ 
-      // Prüfe sofort den Sperrzustand
-      const lockSnap = await dbAbhol.ref(`dayLocks/${dateKey()}`).once('value');
-      if (lockSnap.val() === true) {
-         if (linkChild) enterLinkMode(`Das Abmelden ist im Moment nicht möglich`, true);
-         return; // Render abbrechen, Lock-Screen wird vom Listener gezeigt
-      }
-      await loadUnlocks(); 
-    } else { 
-      unlockedTimes.clear(); 
-    }
+    if(currentDay===todayName()){ await loadUnlocks(); } else { unlockedTimes.clear(); }
 
     try{
       const timesSnap=await dbAbhol.ref(currentDay).once('value');
@@ -310,7 +252,7 @@
 
       if(linkChild){
         const statusNow=(await dbAbhol.ref(`abmeldungen/${dateKey()}`).once('value')).val()||{};
-        await tryAutoCheckout(times,statusNow);
+        const msg=await tryAutoCheckout(times,statusNow);
         return;
       }
 
@@ -354,13 +296,17 @@
         const targetMins = parseHHMM(t);
         const allowedFromMins = targetMins !== null ? targetMins - 2 : null;
         
+        // Button-Logik
         if (currentDay===todayName() && t !== '—') {
             if (targetMins !== null && nowMins >= allowedFromMins) {
+                // NEU: Abmeldezeit ist erreicht oder überschritten
                 buttonHTML = `<span class="status-info">Abmeldung möglich</span>`;
             } else {
+                // Abmeldezeit liegt noch in der Zukunft
                 const isUnlocked = unlockedTimes.has(t);
                 const btnText = isUnlocked ? 'Rückgängig' : 'Abmelden jetzt ermöglichen';
                 const btnClass = isUnlocked ? 'unlock-btn active' : 'unlock-btn';
+                
                 buttonHTML = `<button class="${btnClass}" onclick="toggleTimeUnlock('${t}')">${btnText}</button>`;
             }
         }
@@ -385,12 +331,8 @@
     }
   }
 
+  /* === Auto-Abmeldung (mit Farbanpassung) === */
   async function tryAutoCheckout(times,status){
-    // NEU: Auto-Checkout stoppen wenn System gesperrt ist
-    if (isSystemLocked) {
-      return enterLinkMode(`Das Abmelden ist im Moment nicht möglich`, true);
-    }
-
     const name = linkChild;
     const now = Date.now();
     const systemModeRef = dbGesamt.ref("systemmode/state");
@@ -449,10 +391,13 @@
     return continueCheckout(times, status, name);
   }
 
+  // Angepasst: Farbanpassung der Statusmeldungen
   async function continueCheckout(times, status, name) {
     const setRef=dbAbhol.ref(`abmeldungen/${dateKey()}/${name}`);
 
     if(!times || !times[name]) return enterLinkMode(`Unbekanntes Kind: ${name}.`);
+    
+    // NEU: Farbe Gelb für "bereits abgemeldet"
     if(status && status[name]) return enterLinkMode(`${name}: bereits abgemeldet.`, false, '', 'already');
 
     const otSnap=await dbAbhol.ref(`onetime/${dateKey()}/${name}`).once('value');
@@ -470,15 +415,20 @@
     const allowedFrom=target!==null ? target-2 : null;
     const now = nowMinutes();
 
+    // Erfolgreiche Abmeldung oder Admin-Override
     if(isAdmin || isTimeUnlocked || allowedFrom===null || now >= allowedFrom){
       try{ 
         await setRef.set(true); 
         dbAbhol.ref(`linkFails/${dateKey()}/${name}`).set(null);
+        // NEU: Farbe Grün für "erfolgreich abgemeldet"
         enterLinkMode(`${name}: erfolgreich abgemeldet.`, false, '', 'success'); 
       }
       catch{ enterLinkMode(`${name}: Abmeldung fehlgeschlagen.`); }
     }else{
+      // Wartezustand
       const wait=Math.max(0, allowedFrom-now);
+      
+      // Fortschritts-Berechnung (Startzeit bei 12:00 Uhr)
       const startTimeMinutes = 720; // 12:00 Uhr
       const totalSpan = allowedFrom - startTimeMinutes;
       const elapsed = now - startTimeMinutes;
@@ -489,12 +439,15 @@
       }
       
       let progressClass = progress < 50 ? '' : 'warning'; 
+      
+      // HTML für den Fortschrittsbalken
       const progressHTML = `
         <div class="progress-container">
           <div class="progress-bar ${progressClass}" style="width: ${progress.toFixed(0)}%;"></div>
         </div>
       `;
       
+      // Textnachricht im gewünschten Format
       const waitMessage = `${name} bitte noch ${wait} Minuten warten.`;
       const timeMessage = `Deine Abholzeit für heute ist ${t} Uhr.`;
       
