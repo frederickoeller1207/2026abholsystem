@@ -137,15 +137,6 @@
   <div class="row" style="margin-top:10px"><button id="closeDay" class="secondary">Schließen</button></div>
 </div></div>
 
-<!-- NEU: Globales Popup-Modal für Echtzeit-Nachrichten -->
-<div id="popupModal" class="modal">
-  <div class="box" style="text-align:center; border:3px solid #48bb78; background:#ebf8f5;">
-    <h3 style="color:#38a169; margin-top:0; font-size: 22px;">ℹ️ Information</h3>
-    <p id="popupModalText" style="font-size:20px; font-weight:bold; color:#2f855a; margin-bottom:20px;"></p>
-    <button style="background:#38a169; width:100%; font-size:16px; padding: 12px;" onclick="document.getElementById('popupModal').style.display='none'">OK, verstanden</button>
-  </div>
-</div>
-
 <script>
   /* === DB Configs === */
   const appAbhol = firebase.initializeApp({
@@ -187,21 +178,6 @@
     const snap = await modeRef.once("value");
     const current = snap.exists() ? (snap.val().value || "green") : "green";
     await modeRef.set({ value: getNextMode(current), updatedAt: Date.now() });
-  });
-
-  /* === NEU: Globaler Nachrichten-Listener für Popups === */
-  const initLoadTime = Date.now(); // Damit alte Nachrichten nicht beim Neuladen aufpoppen
-  dbAbhol.ref("globalPopup").on("value", snap => {
-    const data = snap.val();
-    // Prüfen, ob die Nachricht existiert und NEUER als der Zeitpunkt des Seitenaufrufs ist
-    if (data && data.timestamp > initLoadTime) {
-      const pModal = document.getElementById("popupModal");
-      document.getElementById("popupModalText").textContent = data.message;
-      pModal.style.display = "flex";
-      
-      // Das Popup schließt sich nach 8 Sekunden automatisch (optional)
-      setTimeout(() => { pModal.style.display = "none"; }, 8000);
-    }
   });
 
   /* === Utils === */
@@ -300,7 +276,7 @@
         } else {
             await ref.set(true);
             
-            // NEU: Sende die Popup-Nachricht an alle offenen Terminals!
+            // Sende die Popup-Nachricht an das Terminal
             await dbAbhol.ref("globalPopup").set({
                 message: `Abmelden für ${time} Uhr vom Admin freigeschaltet!`,
                 timestamp: Date.now()
