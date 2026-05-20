@@ -10,7 +10,7 @@
   :root{--fg:#1a202c;--muted:#64748b;--accent:#4299e1;--bg:#f0f4f8;--white:#fff}
   body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;background:var(--bg);color:var(--fg)}
   .wrap{max-width:780px;margin:0 auto;padding:16px}
-  h1{margin:10px 0;text-align:center;font-size:22px}
+  h1{margin:0;text-align:center;font-size:22px}
   .row{display:flex;gap:8px;justify-content:center;margin:8px 0}
   button{padding:9px 14px;border:0;border-radius:999px;background:var(--accent);color:#fff;cursor:pointer}
   button.secondary{background:#64748b}
@@ -26,7 +26,6 @@
   button.unlock-btn.active {
     background: #48bb78;
   }
-  /* NEU: Style für Status "Abmeldung möglich" */
   .status-info {
     font-size: 11px;
     padding: 4px 8px;
@@ -49,7 +48,7 @@
   .days button{background:#e2e8f0;color:#334155}
   .days button.active{background:#38a169;color:#fff}
   #link-view{display:none;min-height:50vh;display:flex;align-items:center;justify-content:center;}
-  /* ANGEPASSTER STYLE für die Nachrichten-Box */
+  
   #link-msg{
     background:#fff;
     padding:30px 26px;
@@ -58,25 +57,24 @@
     font-size:24px;
     text-align:center;
     line-height:1.4;
-    transition: background-color 0.3s ease; /* Für sanften Farbübergang */
+    transition: background-color 0.3s ease;
   }
   #link-msg.locked { 
     background-color: #fcebeb; 
     border: 3px solid #e53e3e;
+    color: #e53e3e;
   } 
-  /* NEU: Farben für Statusmeldungen */
   #link-msg.success { 
-    background-color: #ebf8f5; /* Hellgrün */
-    border: 3px solid #38a169; /* Dunkelgrün */
-    color: #38a169; /* Textfarbe Dunkelgrün */
+    background-color: #ebf8f5; 
+    border: 3px solid #38a169; 
+    color: #38a169;
   }
   #link-msg.already { 
-    background-color: #fffbeb; /* Hellgelb */
-    border: 3px solid #f6ad55; /* Gelb-Orange */
-    color: #f6ad55; /* Textfarbe Gelb-Orange */
+    background-color: #fffbeb; 
+    border: 3px solid #f6ad55; 
+    color: #f6ad55; 
   }
 
-  /* PROGRESS BAR */
   .progress-container {
     background: #e2e8f0;
     border-radius: 8px;
@@ -93,11 +91,34 @@
   .progress-bar.warning {
     background: #f6ad55;
   }
+
+  .header-container { display: flex; align-items: center; margin: 10px 0; }
+  .header-left { flex: 1; display: flex; justify-content: flex-start; }
+  .header-center { display: flex; justify-content: center; }
+  .header-right { flex: 1; }
+  .mode-cycle { display: inline-flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #ccc; color: #111; border-radius: 999px; padding: 6px 10px; cursor: pointer; user-select: none; }
+  .mode-dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-green { background: #16a34a; }
+  .dot-yellow { background: #f59e0b; }
+  .dot-red { background: #ef4444; }
+  .mode-text { font-weight: 700; font-size: 14px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1 id="title">Tagesansicht</h1>
+  
+  <div class="header-container" id="main-header">
+    <div class="header-left">
+      <div id="mode-cycle" class="mode-cycle" title="Modus wechseln" style="display:none;">
+        <div id="mode-dot" class="mode-dot dot-green"></div>
+        <div id="mode-text" class="mode-text">Grün</div>
+      </div>
+    </div>
+    <div class="header-center">
+      <h1 id="title">Tagesansicht</h1>
+    </div>
+    <div class="header-right"></div>
+  </div>
 
   <div id="controls" class="row" style="display:none">
     <button id="chooseDayBtn" class="secondary">Wochentag wählen</button>
@@ -116,8 +137,17 @@
   <div class="row" style="margin-top:10px"><button id="closeDay" class="secondary">Schließen</button></div>
 </div></div>
 
+<!-- NEU: Globales Popup-Modal für Echtzeit-Nachrichten -->
+<div id="popupModal" class="modal">
+  <div class="box" style="text-align:center; border:3px solid #48bb78; background:#ebf8f5;">
+    <h3 style="color:#38a169; margin-top:0; font-size: 22px;">ℹ️ Information</h3>
+    <p id="popupModalText" style="font-size:20px; font-weight:bold; color:#2f855a; margin-bottom:20px;"></p>
+    <button style="background:#38a169; width:100%; font-size:16px; padding: 12px;" onclick="document.getElementById('popupModal').style.display='none'">OK, verstanden</button>
+  </div>
+</div>
+
 <script>
-  /* === DB Configs (Unverändert) === */
+  /* === DB Configs === */
   const appAbhol = firebase.initializeApp({
     apiKey:"AIzaSyA9TnOd0oTD0tTNEqMi_7PHU-p0av-XjM0",
     databaseURL:"https://abab-58a5f-default-rtdb.europe-west1.firebasedatabase.app"
@@ -130,7 +160,51 @@
   }, "mode");
   const dbGesamt = firebase.app("mode").database();
 
-  /* === Utils (Unverändert) === */
+  /* === Systemmodus Steuerung === */
+  const modeRef = dbGesamt.ref("systemmode/state");
+  const modeCycleBtn = document.getElementById("mode-cycle");
+  const modeDot = document.getElementById("mode-dot");
+  const modeText = document.getElementById("mode-text");
+  const orderModes = ["green", "yellow", "red"];
+
+  function getNextMode(current) {
+    const idx = orderModes.indexOf(current);
+    return orderModes[idx < 0 ? 0 : (idx + 1) % orderModes.length];
+  }
+
+  function applyModeVisuals(mode) {
+    if(mode === "green") { modeText.textContent = "Grün"; modeDot.className = "mode-dot dot-green"; }
+    else if(mode === "yellow") { modeText.textContent = "Gelb"; modeDot.className = "mode-dot dot-yellow"; }
+    else { modeText.textContent = "Rot"; modeDot.className = "mode-dot dot-red"; }
+  }
+
+  modeRef.on("value", snap => {
+    const v = snap.exists() ? (snap.val().value || "green") : "green";
+    applyModeVisuals(v);
+  });
+
+  modeCycleBtn.addEventListener("click", async () => {
+    const snap = await modeRef.once("value");
+    const current = snap.exists() ? (snap.val().value || "green") : "green";
+    await modeRef.set({ value: getNextMode(current), updatedAt: Date.now() });
+  });
+
+  /* === NEU: Globaler Nachrichten-Listener für Popups === */
+  const initLoadTime = Date.now(); // Damit alte Nachrichten nicht beim Neuladen aufpoppen
+  dbAbhol.ref("globalPopup").on("value", snap => {
+    const data = snap.val();
+    // Prüfen, ob die Nachricht existiert und NEUER als der Zeitpunkt des Seitenaufrufs ist
+    if (data && data.timestamp > initLoadTime) {
+      const pModal = document.getElementById("popupModal");
+      document.getElementById("popupModalText").textContent = data.message;
+      pModal.style.display = "flex";
+      
+      // Das Popup schließt sich nach 8 Sekunden automatisch (optional)
+      setTimeout(() => { pModal.style.display = "none"; }, 8000);
+    }
+  });
+
+  /* === Utils === */
   function berlinParts(d=new Date()){
     const fmt = new Intl.DateTimeFormat('de-DE',{timeZone:'Europe/Berlin',hour12:false,
       year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'long'});
@@ -174,11 +248,9 @@
     qs('#dayModal').style.display='flex';
   }
 
-  // NEU/ANGEPASST: Fügt einen optionalen Status-Typ (success/already) für die Farbe hinzu.
   function enterLinkMode(msg, isLocked=false, progressHTML='', statusType=null){ 
     linkMsgEl.innerHTML=msg + (progressHTML && !isLocked ? `<br>` : ``) + progressHTML;
     
-    // Alte Klassen entfernen und neue hinzufügen
     linkMsgEl.classList.remove('locked', 'success', 'already');
     if (isLocked) linkMsgEl.classList.add('locked');
     if (statusType) linkMsgEl.classList.add(statusType);
@@ -186,6 +258,8 @@
     document.getElementById('link-view').style.display='flex';
     document.getElementById('slots').style.display='none';
     if (controls) controls.style.display='none';
+    document.getElementById('main-header').style.display='none'; 
+    
     document.getElementById('chooseDayBtn')?.setAttribute('disabled','true');
     document.getElementById('adminLinkBtn')?.setAttribute('disabled','true');
     document.getElementById('manualBtn')?.setAttribute('disabled','true');
@@ -193,7 +267,6 @@
     window.addEventListener('popstate',()=>{ history.pushState(null,'',location.href); });
   }
   
-  // Status der Freischaltungen laden (unverändert)
   async function loadUnlocks(){
     unlockedTimes.clear();
     if(currentDay!==todayName()) return;
@@ -209,7 +282,6 @@
     }
   }
 
-  // Freischaltung umschalten (unverändert)
   window.toggleTimeUnlock = async function(time){ 
     if (currentDay !== todayName()) {
         infoEl.textContent = 'Aktion nur für den heutigen Tag erlaubt.';
@@ -227,6 +299,13 @@
             infoEl.textContent = `Sofort-Abmeldung für ${time} Uhr deaktiviert. Lade neu...`;
         } else {
             await ref.set(true);
+            
+            // NEU: Sende die Popup-Nachricht an alle offenen Terminals!
+            await dbAbhol.ref("globalPopup").set({
+                message: `Abmelden für ${time} Uhr vom Admin freigeschaltet!`,
+                timestamp: Date.now()
+            });
+
             infoEl.textContent = `Sofort-Abmeldung für ${time} Uhr aktiviert! Lade neu...`;
         }
         
@@ -239,7 +318,13 @@
 
   async function loadDay(){
     titleEl.textContent=`Heute: ${currentDay}`;
-    if (!linkChild) { controls.style.display='flex'; } else { controls.style.display='none'; }
+    if (!linkChild) { 
+        controls.style.display='flex';
+        modeCycleBtn.style.display='inline-flex'; 
+    } else { 
+        controls.style.display='none';
+        modeCycleBtn.style.display='none';
+    }
 
     if(!SCHOOL.includes(currentDay)){ infoEl.textContent='Kein OGS-Tag. Nur Mo–Fr.'; slotsEl.innerHTML=''; return; }
     infoEl.textContent='Lade…'; slotsEl.innerHTML='';
@@ -296,13 +381,10 @@
         const targetMins = parseHHMM(t);
         const allowedFromMins = targetMins !== null ? targetMins - 2 : null;
         
-        // Button-Logik
         if (currentDay===todayName() && t !== '—') {
             if (targetMins !== null && nowMins >= allowedFromMins) {
-                // NEU: Abmeldezeit ist erreicht oder überschritten
                 buttonHTML = `<span class="status-info">Abmeldung möglich</span>`;
             } else {
-                // Abmeldezeit liegt noch in der Zukunft
                 const isUnlocked = unlockedTimes.has(t);
                 const btnText = isUnlocked ? 'Rückgängig' : 'Abmelden jetzt ermöglichen';
                 const btnClass = isUnlocked ? 'unlock-btn active' : 'unlock-btn';
@@ -331,7 +413,7 @@
     }
   }
 
-  /* === Auto-Abmeldung (mit Farbanpassung) === */
+  /* === Auto-Abmeldung === */
   async function tryAutoCheckout(times,status){
     const name = linkChild;
     const now = Date.now();
@@ -364,7 +446,7 @@
     }
     
     const modeSnap = await systemModeRef.once("value");
-    const rawMode = modeSnap.val().value || "green";
+    const rawMode = modeSnap.val()?.value || "green";
 
     if (rawMode === 'red') {
       let failsSnap = await linkFailsRef.once('value');
@@ -377,12 +459,13 @@
         const sperrBis = now + SperrDauer;
         await kindRef.update({ gesperrt: true, sperrGrund: SperrGrundAutomatisch, sperrBis: sperrBis });
         await linkFailsRef.set(null);
-        const msg = `Dein Konto wurde gesperrt! Grund: ${SperrGrundAutomatisch}. Du hast für 10 Minuten keinen Zugriff auf dein Konto.`;
+        
+        const msg = `Das Abmelden ist momentan nicht verfügbar.<br><br><span style="font-size:16px">(Dein Konto wurde für 10 Minuten gesperrt)</span>`;
         enterLinkMode(msg, true);
         return;
       } else {
         await linkFailsRef.set(fails);
-        const msg = `Warnung! Nutze das Terminal nicht im gesperrten Modus. Beim nächsten Versuch wird dein Konto für 10 Minuten gesperrt.`;
+        const msg = `Das Abmelden ist momentan nicht verfügbar.`;
         enterLinkMode(msg, true);
         return;
       }
@@ -391,13 +474,11 @@
     return continueCheckout(times, status, name);
   }
 
-  // Angepasst: Farbanpassung der Statusmeldungen
   async function continueCheckout(times, status, name) {
     const setRef=dbAbhol.ref(`abmeldungen/${dateKey()}/${name}`);
 
     if(!times || !times[name]) return enterLinkMode(`Unbekanntes Kind: ${name}.`);
     
-    // NEU: Farbe Gelb für "bereits abgemeldet"
     if(status && status[name]) return enterLinkMode(`${name}: bereits abgemeldet.`, false, '', 'already');
 
     const otSnap=await dbAbhol.ref(`onetime/${dateKey()}/${name}`).once('value');
@@ -415,21 +496,16 @@
     const allowedFrom=target!==null ? target-2 : null;
     const now = nowMinutes();
 
-    // Erfolgreiche Abmeldung oder Admin-Override
     if(isAdmin || isTimeUnlocked || allowedFrom===null || now >= allowedFrom){
       try{ 
         await setRef.set(true); 
         dbAbhol.ref(`linkFails/${dateKey()}/${name}`).set(null);
-        // NEU: Farbe Grün für "erfolgreich abgemeldet"
         enterLinkMode(`${name}: erfolgreich abgemeldet.`, false, '', 'success'); 
       }
       catch{ enterLinkMode(`${name}: Abmeldung fehlgeschlagen.`); }
     }else{
-      // Wartezustand
       const wait=Math.max(0, allowedFrom-now);
-      
-      // Fortschritts-Berechnung (Startzeit bei 12:00 Uhr)
-      const startTimeMinutes = 720; // 12:00 Uhr
+      const startTimeMinutes = 720; 
       const totalSpan = allowedFrom - startTimeMinutes;
       const elapsed = now - startTimeMinutes;
 
@@ -440,14 +516,12 @@
       
       let progressClass = progress < 50 ? '' : 'warning'; 
       
-      // HTML für den Fortschrittsbalken
       const progressHTML = `
         <div class="progress-container">
           <div class="progress-bar ${progressClass}" style="width: ${progress.toFixed(0)}%;"></div>
         </div>
       `;
       
-      // Textnachricht im gewünschten Format
       const waitMessage = `${name} bitte noch ${wait} Minuten warten.`;
       const timeMessage = `Deine Abholzeit für heute ist ${t} Uhr.`;
       
